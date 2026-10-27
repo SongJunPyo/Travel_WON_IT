@@ -18,6 +18,9 @@ dependencies {
     // 모델의 JSON Schema와 응답 변환에 Spring AI를 사용합니다.
     implementation 'org.springframework.ai:spring-ai-model'
     runtimeOnly 'com.h2database:h2'
+    // mysql 프로필에서 travel_won(MySQL 8.0)에 연결합니다. 버전은 Spring Boot가 관리합니다.
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'com.mysql:mysql-connector-j'   // 추가
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
