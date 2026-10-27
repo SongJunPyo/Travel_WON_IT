@@ -10,7 +10,8 @@
 | [Compare.tsx](../../src/screens/Compare.tsx) | 추천순 요청, 카드에 추천 이유·'AI 추천' 배지 표시 |
 | [PriceService.java](../../src/main/java/com/wonit/travel/price/PriceService.java) | 반경 조회·묶기, 추천순일 때 1·2단계 실행, AI 결과 검사·캐시 |
 | [PriceRecommender.java](../../src/main/java/com/wonit/travel/price/PriceRecommender.java) | 1단계: 추천 점수와 규칙 기반 이유 |
-| [ClaudePriceRanker.java](../../src/main/java/com/wonit/travel/price/ClaudePriceRanker.java) | 2단계: Claude 호출(프롬프트, 8초 제한, 동시 2건) |
+| [ClaudePriceRanker.java](../../src/main/java/com/wonit/travel/price/ClaudePriceRanker.java) | 2단계: Claude에 보낼 후보 JSON과 프롬프트 |
+| [StructuredClaude.java](../../src/main/java/com/wonit/travel/ai/StructuredClaude.java), [TtlCache.java](../../src/main/java/com/wonit/travel/ai/TtlCache.java) | 공통 모듈: Claude 호출(8초 제한, 동시 2건, JSON 변환)과 결과 캐시. 소비 인사이트도 함께 씀 |
 | [PriceRanker.java](../../src/main/java/com/wonit/travel/price/PriceRanker.java), [RankerConfig.java](../../src/main/java/com/wonit/travel/price/RankerConfig.java) | AI 재정렬 인터페이스와 연결 설정 |
 
 ## 1. 왜 추천순인가요
@@ -144,7 +145,7 @@ AI가 정한 카드에는 `ai: true`가 붙고, 앱은 이유 앞에 **`AI 추�
 | 후보 수 | 상위 10개 | 요청을 작게 유지 |
 | 캐시 | 같은 조건(통화·카테고리·검색어·위치·반경·예산 요약) + 같은 후보(id·구매수·가격)면 10분 재사용, 최대 200건 | 같은 화면을 다시 볼 때 호출하지 않음. 새 영수증이 들어와 후보가 바뀌면 자동으로 새로 부름 |
 | 실패 캐시 | 1분 | 장애 중 같은 실패를 반복해 기다리지 않음 |
-| 시간 제한 | 8초 | 검색 화면을 오래 붙잡지 않음 (OCR의 60초와 별도) |
+| 시간 제한 | 서버 8초, 앱은 15초까지 기다림 | 검색 화면을 오래 붙잡지 않음 (OCR의 60초와 별도). 앱이 서버보다 먼저 포기하지 않도록 앱 쪽을 더 길게 둠 |
 | 동시 호출 | 2건 + 대기 4건, 넘치면 바로 1단계 순서 | 호출이 몰려도 비용·대기가 늘지 않음 |
 | 키 없음 | AI를 부르지 않음 | 1단계만으로 동작 |
 | 결과가 1개 이하 | AI를 부르지 않음 | 재정렬할 것이 없음 |
