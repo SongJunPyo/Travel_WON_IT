@@ -106,14 +106,11 @@ try {
       "-jar",
       "build/libs/travel-wonhae-1.0.0.jar",
       "--server.port=8787",
-      // 브라우저 검증은 실제 MySQL의 별도 DB를 씁니다. 계정은 .env의 DB_USERNAME · DB_PASSWORD.
-      `--spring.datasource.url=${process.env.BROWSER_DB_URL || "jdbc:mysql://localhost:3306/travel_wonhae_browser?createDatabaseIfNotExist=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8"}`,
-      "--spring.jpa.hibernate.ddl-auto=create-drop",
+      // 서버에는 아직 DB 저장 기능이 없어 검증 중에는 H2 메모리 DB를 씁니다(파일·MySQL을 건드리지 않음).
+      "--spring.datasource.url=jdbc:h2:mem:browser-check",
       "--ANTHROPIC_API_KEY=test-only",
       `--app.allowed-origins=${origin}`,
       `--spring.ai.anthropic.base-url=http://127.0.0.1:${provider.address().port}`,
-      "--MAPBOX_TOKEN=",
-      `--app.geocoding.nominatim-url=http://127.0.0.1:${provider.address().port}/search`,
       // 실제 한국수출입은행 API를 부르지 않도록 키를 비웁니다. 새 영수증의 적용 환율은 여행 설정 값으로 남습니다.
       "--KOREAEXIM_API_KEY=",
     ],
@@ -417,10 +414,7 @@ try {
     `${saved}.receipts.at(-1).shareConsent===true&&!${saved}.receipts.at(-1).location`,
     "위치 없이 주소만으로 영수증 저장",
   );
-  await check(
-    `fetch('http://localhost:8787/prices').then(r=>r.json()).then(d=>d.records.length===1)`,
-    "가격 공유 서버 동기화",
-  );
+  // 서버 가격 공유(/prices)와 주소 → 좌표 변환은 travel_won 4개 테이블 설계로 다시 만든 뒤 확인을 되살립니다.
   await click("tab-compare");
   await check(
     `document.querySelector('[data-testid="product-search"]').value==='에비앙 500ml'`,
@@ -430,10 +424,6 @@ try {
   await set("product-search", "코카콜라 500ml");
   await click("search-submit");
   await clickLabel("현재 위치 사용");
-  await check(
-    bodyHas("공유 테스트 매장"),
-    "PAGE 1 영수증이 PAGE 2 가격 비교로 연결",
-  );
   await click("tab-ledger");
   await click("trip-settings");
   await click("clear-demo");

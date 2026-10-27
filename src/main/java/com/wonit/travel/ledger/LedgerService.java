@@ -1,129 +1,136 @@
 package com.wonit.travel.ledger;
 
-import com.wonit.travel.Money;
 import com.wonit.travel.api.ApiException;
-import com.wonit.travel.price.PriceService;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.text.Normalizer;
 import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
-import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 기기별 가계부(여행 1개 + 영수증)를 DB에 저장하고 읽습니다. 저장은 전체 스냅샷 교체입니다. */
 @Service
 public class LedgerService {
-    public static final List<String> CATEGORIES = List.of("음식", "쇼핑", "교통", "숙박", "관광", "기타");
-    private static final int MAX_RECEIPTS = 2000;
-
+    public static final Set<String> CURRENCIES = Set.of("EUR", "USD", "JPY", "THB", "KRW");
+    public static final Set<String> LEDGER_CATEGORIES = Set.of("음식", "쇼핑", "교통", "숙박", "관광", "기타");
+    public static final Set<String> BROWSE_CATEGORIES = Set.of("식당", "명소", "화장품", "의류", "뷰티·웰니스", "숙박", "액티비티", "렌트");
+    private static final BigDecimal MAX_RATE = BigDecimal.valueOf(1_000_000);
+    public record Ledger(TripData trip, List<ReceiptData> receipts) {}
     private final DeviceRepository devices;
     private final TripRepository trips;
     private final ReceiptRepository receipts;
-    private final StoreRepository stores;
-    private final ProductRepository products;
-    private final CategoryRepository categories;
-    private final PriceService prices;
-    private final StoreGeocoder geocoder;
-
-    public LedgerService(DeviceRepository devices, TripRepository trips, ReceiptRepository receipts,
-            StoreRepository stores, ProductRepository products, CategoryRepository categories, PriceService prices,
-            StoreGeocoder geocoder) {
-        this.devices = devices; this.trips = trips; this.receipts = receipts; this.stores = stores;
-        this.products = products; this.categories = categories; this.prices = prices; this.geocoder = geocoder;
+    public LedgerService(DeviceRepository devices, TripRepository trips, ReceiptRepository receipts) {
+        this.devices = devices; this.trips = trips; this.receipts = receipts;
     }
-
-    /** 저장된 가계부가 없으면 null. */
+    // 처음 보는 기기는 저장할 때 만들고, 조회만 할 때는 빈 가계부를 돌려줍니다.
     @Transactional(readOnly = true)
-    public LedgerDtos.TravelState load(String authorization) {
-        var device = devices.findByTokenHash(DeviceTokens.hash(authorization)).orElse(null);
-        if (device == null) return null;
-        var trip = trips.findByDevice(device).orElse(null);
-        if (trip == null) return null;
-        return new LedgerDtos.TravelState(1, trip.toDto(),
-                receipts.findByDeviceOrderByIdAsc(device).stream().map(receipt -> receipt.toDto()).toList());
+    public Ledger ledger(String authorization) {
+        return devices.findByTokenHash(hash(authorization))
+                .map(d -> new Ledger(trips.findByDevice(d).map(Trip::data).orElse(null),
+                        receipts.findByDeviceOrderByPurchasedDateDescCreatedAtDesc(d).stream().map(Receipt::data).toList()))
+                .orElse(new Ledger(null, List.of()));
     }
-
     @Transactional
-    public synchronized void replace(String authorization, LedgerDtos.TravelState state) {
-        String owner = DeviceTokens.hash(authorization);
-        validate(state);
-        var device = devices.findByTokenHash(owner).orElseGet(() -> devices.save(new DeviceEntity(owner)));
-        receipts.deleteAll(receipts.findByDeviceOrderByIdAsc(device));
-        trips.findByDevice(device).ifPresent(trips::delete);
-        receipts.flush();
-        trips.flush();
-        var trip = trips.save(new TripEntity(device, state.trip()));
-        for (var r : state.receipts()) {
-            var category = categories.findByName(r.category()).orElseThrow(this::invalid);
-            var store = store(r);
-            var receipt = new ReceiptEntity(device, trip, store, category, r,
-                    Money.toWon(r.totalMinor(), r.currency(), r.rate()));
-            // 앱에서 위치를 받지 않으므로, 영수증 주소로 찾은 매장 좌표를 영수증 위치로 씁니다.
-            if (r.location() == null && store.getLatitude() != null)
-                receipt.locateAt(store.getLatitude(), store.getLongitude());
-            for (int i = 0; i < r.items().size(); i++) {
-                var item = r.items().get(i);
-                // 같은 상품을 여러 나라 영수증에서 묶을 수 있게 한국어 번역 이름을 우선 정규화합니다.
-                String productName = item.nameKo() == null || item.nameKo().isBlank() ? item.name() : item.nameKo();
-                receipt.addItem(new ReceiptItemEntity(receipt, product(productName, category), i, item));
-            }
-            receipts.save(receipt);
-        }
-        receipts.flush();
-        prices.refreshStoreProducts();
+    public synchronized TripData saveTrip(String authorization, TripData request) {
+        TripData t = validate(request);
+        Device device = device(authorization);
+        Trip trip = trips.findByDevice(device).orElseGet(() -> new Trip(device));
+        trip.update(t);
+        return trips.saveAndFlush(trip).data();
     }
-
-    private StoreEntity store(LedgerDtos.Receipt r) {
-        String name = r.store().strip(), address = r.address() == null ? "" : r.address().strip();
-        var store = stores.findByNameAndAddress(name, address).orElseGet(() -> stores.save(new StoreEntity(name, address)));
-        if (r.location() != null) store.locate(r.location().latitude(), r.location().longitude());
-        else if (store.getLatitude() == null && !address.isEmpty() && !Boolean.TRUE.equals(r.demo()))
-            geocoder.locate(address).ifPresent(p -> store.locate(p.latitude(), p.longitude()));
-        return store;
+    @Transactional
+    public synchronized ReceiptData create(String authorization, ReceiptData request) {
+        ReceiptData r = validate(request);
+        Device device = device(authorization);
+        if (receipts.countByDevice(device) >= 1000) throw new ApiException(507, "기기당 영수증은 1,000개까지 저장할 수 있어요.");
+        if (receipts.count() >= 30000) throw new ApiException(507, "시연 서버의 저장 한도에 도달했어요.");
+        Receipt receipt = new Receipt(device);
+        receipt.update(r, trips.findByDevice(device).orElse(null));
+        return receipts.saveAndFlush(receipt).data();
     }
-
-    private ProductEntity product(String name, CategoryEntity category) {
-        String normalized = PriceService.normalize(name);
-        if (normalized.isBlank() || normalized.length() > 200) return null;
-        return products.findByNormalizedName(normalized)
-                .orElseGet(() -> products.save(new ProductEntity(normalized, name.strip(), category)));
+    @Transactional
+    public synchronized ReceiptData update(String authorization, Long id, ReceiptData request) {
+        ReceiptData r = validate(request);
+        Receipt receipt = own(authorization, id);
+        receipt.update(r, trips.findByDevice(devices.findByTokenHash(hash(authorization)).orElseThrow()).orElse(null));
+        return receipts.saveAndFlush(receipt).data();
     }
-
-    /** 앱의 validateReceipt와 같은 기준으로 검사합니다. */
-    private void validate(LedgerDtos.TravelState s) {
-        if (s == null || s.trip() == null || s.receipts() == null || s.receipts().size() > MAX_RECEIPTS) throw invalid();
-        var t = s.trip();
-        if (!text(t.city(), 50) || !text(t.country(), 50) || !date(t.start()) || !date(t.end())
-                || t.budget() == null || t.budget() < 0 || t.budget() > 1_000_000_000_000L
-                || !Money.supported(t.currency()) || !Money.validRate(t.rate())) throw invalid();
-        Set<String> ids = new HashSet<>();
-        for (var r : s.receipts()) {
-            if (r == null || !text(r.id(), 150) || !ids.add(r.id()) || !text(r.store(), 120) || !date(r.date())
-                    || !Money.supported(r.currency()) || !CATEGORIES.contains(r.category()) || !Money.validRate(r.rate())
-                    || r.items() == null || r.items().isEmpty() || r.items().size() > 100
-                    || r.totalMinor() == null || r.totalMinor() < 1 || r.totalMinor() > Money.MAX_MINOR
-                    || (r.address() != null && r.address().length() > 250)
-                    || !text(r.recordedAt(), 35)) throw invalid();
-            if (r.location() != null) {
-                var l = r.location();
-                if (l.latitude() == null || l.longitude() == null || !Double.isFinite(l.latitude()) || !Double.isFinite(l.longitude())
-                        || Math.abs(l.latitude()) > 85.0511 || Math.abs(l.longitude()) > 180) throw invalid();
-            }
-            long sum = 0;
-            for (var i : r.items()) {
-                if (i == null || !text(i.name(), 160) || (i.nameKo() != null && i.nameKo().length() > 160) || i.quantity() == null || i.quantity() < 1 || i.quantity() > 999
-                        || i.unitMinor() == null || i.unitMinor() < 1 || i.unitMinor() > Money.MAX_MINOR) throw invalid();
-                sum += i.unitMinor() * i.quantity();
-            }
-            if (sum != r.totalMinor()) throw invalid();
-        }
+    @Transactional
+    public synchronized void delete(String authorization, Long id) {
+        receipts.delete(own(authorization, id));
     }
-
-    private static boolean text(String value, int max) { return value != null && !value.isBlank() && value.length() <= max; }
+    // 다른 기기의 영수증은 있는지조차 알리지 않도록 같은 404로 응답합니다.
+    private Receipt own(String authorization, Long id) {
+        return devices.findByTokenHash(hash(authorization)).flatMap(d -> receipts.findByIdAndDevice(id, d))
+                .orElseThrow(() -> new ApiException(404, "영수증을 찾지 못했어요."));
+    }
+    private Device device(String authorization) {
+        String tokenHash = hash(authorization);
+        return devices.findByTokenHash(tokenHash).orElseGet(() -> devices.saveAndFlush(new Device(tokenHash)));
+    }
+    private TripData validate(TripData t) {
+        if (t == null || !text(t.city(), 50) || !text(t.country(), 50) || !date(t.start()) || !date(t.end())
+                || LocalDate.parse(t.start()).isAfter(LocalDate.parse(t.end())) || !in(CURRENCIES, t.currency())
+                || t.budget() == null || t.budget() < 0 || t.budget() > 1_000_000_000_000L || !rate(t.rate()))
+            throw new ApiException(400, "여행 도시·기간·예산·통화·환율을 확인해 주세요.");
+        return new TripData(t.city().strip(), t.country().strip(), t.start(), t.end(), t.budget(), t.currency(), t.rate());
+    }
+    private ReceiptData validate(ReceiptData r) {
+        if (r == null || !text(r.store(), 120) || (r.address() != null && r.address().strip().length() > 250)
+                || !date(r.date()) || !in(CURRENCIES, r.currency()) || !in(LEDGER_CATEGORIES, r.category())
+                || (!blank(r.browseCategory()) && !in(BROWSE_CATEGORIES, r.browseCategory())) || r.shareConsent() == null)
+            throw new ApiException(400, "매장명·구매일·통화·카테고리를 확인해 주세요.");
+        if (!rate(r.rate())) throw new ApiException(400, "적용 환율을 확인해 주세요.");
+        ReceiptData.Location location = r.location();
+        if (location != null && (location.latitude() == null || location.longitude() == null
+                || !Double.isFinite(location.latitude()) || Math.abs(location.latitude()) > 85.0511
+                || !Double.isFinite(location.longitude()) || Math.abs(location.longitude()) > 180))
+            throw new ApiException(400, "매장 위치를 확인해 주세요.");
+        if (r.shareConsent() && location == null) throw new ApiException(400, "가격을 공유하려면 매장 위치가 필요해요.");
+        if (r.items() == null || r.items().isEmpty() || r.items().size() > 100
+                || r.items().stream().anyMatch(i -> i == null || !text(i.name(), 160) || (i.nameKo() != null && i.nameKo().strip().length() > 160)
+                    || i.quantity() == null || i.quantity() < 1 || i.quantity() > 999
+                    || i.unitMinor() == null || i.unitMinor() < 1 || i.unitMinor() > 1_000_000_000))
+            throw new ApiException(400, "상품명·수량·개당 가격을 확인해 주세요.");
+        if (r.totalMinor() == null || r.totalMinor() < 1 || r.totalMinor() > 1_000_000_000)
+            throw new ApiException(400, "총 결제금액을 확인해 주세요.");
+        if (r.items().stream().mapToLong(i -> i.unitMinor() * i.quantity()).sum() != r.totalMinor())
+            throw new ApiException(400, "상품 합계와 총 결제금액이 달라요. 할인·세금은 상품 가격에 반영해 주세요.");
+        List<ReceiptData.Item> items = r.items().stream().map(i -> new ReceiptData.Item(i.name().strip(),
+                blank(i.nameKo()) ? null : i.nameKo().strip(), i.quantity(), i.unitMinor())).toList();
+        return new ReceiptData(null, r.store().strip(), r.address() == null ? "" : r.address().strip(), location, r.category(),
+                blank(r.browseCategory()) ? null : r.browseCategory(), r.date(), r.currency(), r.rate(), r.totalMinor(),
+                r.shareConsent(), items, null);
+    }
+    // 같은 상품을 묶는 기준입니다. 영수증 원문 이름을 정규화합니다.
+    public static String normalize(String value) {
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT)
+                .replaceAll("코카\\s*콜라|coca[\\s-]*cola|coke", "코카콜라")
+                .replaceAll("에비앙|evian", "에비앙");
+        normalized = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*l\\b").matcher(normalized)
+                .replaceAll(match -> new BigDecimal(match.group(1)).multiply(BigDecimal.valueOf(1000)).stripTrailingZeros().toPlainString() + "ml");
+        return normalized.replaceAll("[\\s._-]+", "").replace("밀리리터", "ml");
+    }
+    private static boolean in(Set<String> values, String value) { return value != null && values.contains(value); }
+    private static boolean blank(String value) { return value == null || value.isBlank(); }
+    private static boolean text(String value, int max) { return !blank(value) && value.strip().length() <= max; }
+    private static boolean rate(BigDecimal rate) {
+        return rate != null && rate.signum() > 0 && rate.compareTo(MAX_RATE) <= 0 && rate.stripTrailingZeros().scale() <= 4;
+    }
     private static boolean date(String value) {
-        try { return value != null && LocalDate.parse(value).toString().equals(value); }
-        catch (DateTimeParseException e) { return false; }
+        try { return value != null && LocalDate.parse(value).toString().equals(value); } catch (RuntimeException e) { return false; }
     }
-    private ApiException invalid() { return new ApiException(400, "가계부의 여행·영수증 정보를 확인해 주세요."); }
+    private static String hash(String authorization) {
+        if (authorization == null || !authorization.matches("Bearer [\\w-]{40,160}"))
+            throw new ApiException(401, "기기 식별 토큰이 필요해요.");
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(authorization.substring(7).getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) { throw new IllegalStateException(e); }
+    }
 }

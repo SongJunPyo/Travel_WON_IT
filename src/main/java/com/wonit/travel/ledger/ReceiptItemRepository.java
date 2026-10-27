@@ -4,16 +4,11 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
-public interface ReceiptItemRepository extends JpaRepository<ReceiptItemEntity, Long> {
-    /** 시연 기록이 아니고 매장 위치·주소가 있는 품목을 가격 비교에 씁니다 (share_consent는 항상 !demo). */
+public interface ReceiptItemRepository extends JpaRepository<ReceiptItem, Long> {
+    // 공유에 동의한 영수증 품목 중 위치 사각형 안의 것만 가져옵니다. 정확한 반경은 서비스에서 거릅니다.
     @Query("""
-            select i from ReceiptItemEntity i
-              join fetch i.receipt r
-              join fetch r.store s
-              join fetch i.product p
-            where r.shareConsent = true and r.demo = false
-              and r.latitude is not null and r.longitude is not null
-              and s.address <> ''
-            order by r.id, i.position""")
-    List<ReceiptItemEntity> findShared();
+            select i from ReceiptItem i join fetch i.receipt r
+            where r.shareConsent = true and r.currency = :currency
+              and r.latitude between :minLat and :maxLat and r.longitude between :minLng and :maxLng""")
+    List<ReceiptItem> findShared(String currency, double minLat, double maxLat, double minLng, double maxLng);
 }

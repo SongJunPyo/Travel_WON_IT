@@ -10,35 +10,36 @@
 - 카테고리 둘러보기: 식당·명소·화장품·의류·뷰티·웰니스·숙박·액티비티·렌트(영수증 단위). 카테고리 안에서 다른 여행자의 거래 기록을 가격순·구매수·최신순으로 조회합니다. 거리순은 현재 위치 연동 전까지 비활성입니다. 실제 기록 연결은 DB 설계 후 진행하며, 지금은 가상 시연 기록을 표시합니다.
 - 화면 전환은 하단 탭으로 합니다.
 - 지도는 주변 가격 비교 화면 우하단의 작은 버튼으로 여는 창에 표시합니다. 현재 목록(상품 검색 결과 또는 선택한 카테고리)의 매장을 보여 주고, 오른쪽 위 X로 닫습니다.
-- 실제 영수증의 상품별 정보는 별도 동의 절차 없이 공유하고(편집 화면에 공유 안내), 매장 위치는 서버가 매장 주소로 찾고(Mapbox 또는 Nominatim 지오코딩, 결과는 주소별 캐시), 좌표를 찾은 영수증만 지도 가격 비교에 나옵니다. 영수증 화면에는 위치 버튼이 없습니다. 시연 기록은 공유하지 않습니다.
+- 실제 영수증의 상품별 정보는 선택 동의와 매장 위치 확인 후에만 공유합니다. 시연 기록은 공유하지 않습니다.
 - 챗봇·ATM·환급·별도 여행 소개 페이지는 만들지 않습니다.
 
 ## 2. 설계와 기술 버전
 
-| 항목            | 버전                                | 근거                                                                                                                  |
-| --------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Java            | 21 (검증 JDK 21.0.12.1)             | AGENTS.md 기준과 참고 저장소 toolchain                                                                                |
-| Spring Boot     | 4.1.1                               | 지정 참고 저장소 build.gradle과 동일                                                                                  |
-| Spring AI       | 2.0.1                               | 참고 저장소 BOM과 동일, BeanOutputConverter로 상품별 JSON Schema·응답 변환                                            |
-| Hibernate·MySQL | 7.4.5.Final·Connector/J (Boot 관리) | Boot 4.1.1 의존성 관리, JPA 저장 계층·MySQL 8. 테스트는 H2 2.4.240(MySQL 모드). 98_HACKATHON/my-hackathon과 같은 구성 |
-| Gradle          | 9.7.1                               | 참고 저장소 Gradle Wrapper와 동일                                                                                     |
-| JUnit Jupiter   | 5.14.2                              | AGENTS.md의 JUnit 5 기준, Spring 7의 JUnit 6 전용 Extension 대신 컨텍스트 생명주기 직접 관리                          |
-| Expo            | 58.0.19                             | 설치 시 안정 버전, Expo Doctor 호환 검사 통과                                                                         |
-| React Native    | 0.88.0                              | Expo SDK 58의 호환 버전                                                                                               |
-| React           | 19.3.0                              | Expo SDK 58의 호환 버전                                                                                               |
-| TypeScript      | 6.0.3                               | Expo 설치 호환 버전                                                                                                   |
+| 항목          | 버전                    | 근거                                                                                         |
+| ------------- | ----------------------- | -------------------------------------------------------------------------------------------- |
+| Java          | 21 (검증 JDK 21.0.12.1) | AGENTS.md 기준과 참고 저장소 toolchain                                                       |
+| Spring Boot   | 4.1.1                   | 지정 참고 저장소 build.gradle과 동일                                                         |
+| Spring AI     | 2.0.1                   | 참고 저장소 BOM과 동일, BeanOutputConverter로 상품별 JSON Schema·응답 변환                   |
+| Hibernate·H2  | 7.4.5.Final·2.4.240     | Boot 4.1.1 의존성 관리, JPA 저장 계층·파일 H2 사용                                           |
+| MySQL Connector/J | 9.7.0               | Boot 4.1.1 의존성 관리. `mysql` 프로필로 MySQL 8.0.38(`travel_won`) 연결, 계정의 `mysql_native_password` 인증 지원 확인 |
+| Gradle        | 9.7.1                   | 참고 저장소 Gradle Wrapper와 동일                                                            |
+| JUnit Jupiter | 5.14.2                  | AGENTS.md의 JUnit 5 기준, Spring 7의 JUnit 6 전용 Extension 대신 컨텍스트 생명주기 직접 관리 |
+| Expo          | 58.0.19                 | 설치 시 안정 버전, Expo Doctor 호환 검사 통과                                                |
+| React Native  | 0.88.0                  | Expo SDK 58의 호환 버전                                                                      |
+| React         | 19.3.0                  | Expo SDK 58의 호환 버전                                                                      |
+| TypeScript    | 6.0.3                   | Expo 설치 호환 버전                                                                          |
 
 참고 저장소의 로컬 체크아웃에서 README, build.gradle, frontend/package.json, 컨트롤러·서비스·JPA·CORS·AI 연결 소스를 확인했습니다. 원격 조회가 실패했을 때 로컬 저장소의 origin이 `WONIT-A/05_springAI.git`임을 확인해 사용했습니다. 참고 프런트는 React·Vite이며, 사용자 모바일 앱 요청에 맞춰 React Native·Expo를 사용합니다. 환율 연동 전 같은 체크아웃(`C:\ITStudy\05_springAI`, 커밋 aa8f278)을 다시 확인했으며, 외부 REST 호출 코드는 없어서 키는 환경 변수에서만 읽는 방식, 금액 DTO의 `BigDecimal`, Mockito 서비스 테스트 방식을 따릅니다.
 
 책임은 화면·서버 요청·도메인 계산·REST 컨트롤러·OCR 서비스/공급자·가격 서비스·환율 서비스·JPA 저장소로 나눕니다. 앱은 두 탭만 제공하고 여행 설정은 가계부의 시트로 엽니다.
 
-가계부(여행·영수증·품목)는 MySQL에 기기별로 저장하고 AsyncStorage에 사본을 둡니다. 테이블은 `docs/schema.sql`과 같습니다(가게·상품·가게-상품 가격을 분리). 기기 토큰은 서버에서 SHA-256 해시로만 보관합니다. 동기화는 기기별 가계부 전체를 트랜잭션으로 교체하여 삭제·재시도를 처리하고, 가격 비교 기록과 매장별 최근 가격은 시연이 아닌 품목에서 서버가 계산합니다. 공개 API는 DTO 허용 필드만 반환합니다.
+서버는 `devices`·`trips`·`receipts`·`receipt_items` 4개 테이블에 가계부를 저장합니다([docs/db-design.md](docs/db-design.md)). 기본은 H2 파일 DB이고, `mysql` 프로필은 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`로 MySQL(`travel_won`)에 연결합니다. 참고 저장소와 같이 프로필을 나누되, MySQL은 테이블 자동 생성을 끄고(`ddl-auto=none`) 스키마 SQL로 만듭니다. 기기 토큰은 서버에서 SHA-256 해시로만 보관하고, 영수증 수정·삭제는 같은 기기의 것만 허용합니다. PAGE 2 조회(`GET /prices`)는 공유 동의한 영수증을 반경 안에서 카테고리·상품명으로 거르고 매장·상품별 최근 가격과 구매수로 묶습니다. 공개 API는 DTO 허용 필드만 반환합니다. 앱은 아직 AsyncStorage와 이전 동기화 방식을 쓰며, 새 API로 전환할 예정입니다.
 
-영수증 사진 인식은 98_HACKATHON/my-hackathon과 같은 방식입니다: multipart `POST /api/receipts/ocr` → Spring AI `ChatClient`로 Claude 호출 → `BeanOutputConverter`로 JSON 변환 → 서버가 금액 문자열을 최소 단위로 변환·검증 → 인식 이력(`ocr_history`) 저장. 오류는 `INVALID_FILE`·`OCR_UNAVAILABLE`·`OCR_FAILED` 코드로 돌려줍니다.
+영수증 사진 인식은 98_HACKATHON/my-hackathon과 같은 방식입니다: multipart `POST /api/receipts/ocr` → Spring AI `ChatClient`로 Claude 호출 → `BeanOutputConverter`로 JSON 변환 → 서버가 금액 문자열을 최소 단위로 변환·검증. 오류는 `INVALID_FILE`·`OCR_UNAVAILABLE`·`OCR_FAILED` 코드로 돌려줍니다.
 
 환율은 서버가 한국수출입은행 현재환율 API(`https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON`, `data=AP01`)의 매매기준율(`deal_bas_r`)을 Spring `RestClient`로 받아 `GET /api/exchange-rates/{currency}`로 돌려줍니다(`{currency, rate, date, source}`, 새 라이브러리 없음). 인증키는 환경 변수 `KOREAEXIM_API_KEY`에서만 읽습니다. 값의 쉼표를 지우고 `JPY(100)`은 100으로 나눠 1엔당 원화로 바꿉니다. 오늘 고시가 없으면(주말·공휴일·고시 전) 최대 7일 전까지 거슬러 올라가 가장 최근 고시일 값을 쓰고 그 기준일을 함께 돌려줍니다. 조회 결과는 기준일 단위로 서버 메모리에 캐시하고, KRW는 API 없이 1입니다. 키 미설정·`result`가 1이 아닌 응답·조회 실패는 `RATE_UNAVAILABLE`로 돌려주며, 앱은 직접 입력을 유지합니다.
 
-통화는 EUR·USD·THB·JPY·KRW를 지원합니다. 금액은 최소 통화 단위 정수로 저장하며 Java는 long, 앱은 안전한 정수 범위와 BigInt를 사용합니다. 적용 환율은 1 외화당 원화이며 0보다 크고 1,000,000 이하, 소수 4자리까지 허용합니다(예: JPY 8.4174, EUR 1482.72). 앱은 환율×10,000 정수와 BigInt로, Java는 `BigDecimal`로 계산하고, DB는 `DECIMAL(14,4)`로 저장합니다. 원화 환산(금액×환율)은 계산을 마친 뒤 원 단위 사사오입합니다. 기존 정수 환율 데이터는 그대로 유효합니다. `ddl-auto=update`는 기존 컬럼 형식을 바꾸지 않으므로, 기존 DB는 `trips.rate`·`receipts.rate`를 `DECIMAL(14,4)`로 바꾸는 ALTER 문(`docs/schema.sql`에 함께 기록)을 한 번 실행합니다. 상품 수량은 정수이며 상품 합계와 총액이 일치해야 합니다.
+통화는 EUR·USD·THB·JPY·KRW를 지원합니다. 금액은 최소 통화 단위 정수로 저장하며 Java는 long, 앱은 안전한 정수 범위와 BigInt를 사용합니다. 적용 환율은 1 외화당 원화이며 0보다 크고 1,000,000 이하, 소수 4자리까지 허용합니다(예: JPY 8.4174, EUR 1482.72). 앱은 환율×10,000 정수와 BigInt로, Java는 `BigDecimal`로 계산하고, DB는 `travel_won` 설계의 `DECIMAL(12,4)`로 저장합니다. 원화 환산(금액×환율)은 계산을 마친 뒤 원 단위 사사오입합니다. 기존 정수 환율 데이터는 그대로 유효합니다. 상품 수량은 정수이며 상품 합계와 총액이 일치해야 합니다.
 
 지도는 Mapbox 타일(`EXPO_PUBLIC_MAPBOX_TOKEN`의 공개 토큰, 없으면 OpenStreetMap 타일)과 Web Mercator 좌표 변환을 사용합니다. 반경은 3km, 거리는 좌표 간 직선거리이며 도보 시간은 추정으로 표시합니다. 같은 매장명·주소·상품·통화의 최신 구매일 기록을 비교합니다. GPS 오차는 동일 매장의 별도 지점으로 만들지 않습니다.
 
@@ -51,7 +52,7 @@
 - 환율 API: 쉼표 제거·`JPY(100)` 환산, 빈 응답 시 이전 고시일, 키 미설정·`result` 1이 아닌 응답·조회 실패 시 `RATE_UNAVAILABLE`, 기준일 캐시, KRW=1. 테스트는 가짜 응답을 쓰고 실제 API 호출은 별도 확인.
 - 상품 약어·용량 정규화, 최신 구매가격 선택, 통화·반경 필터, 매장 GPS 오차 구분.
 - 카테고리별 매장·상품 묶음과 구매수·최신 가격, 가격순·구매수·최신순 정렬, 통화·반경 필터, 거리순 비활성.
-- 동의 절차 없는 공유·시연 제외·개인정보 제외·기기별 삭제·재동기화·JPA 저장·허용 origin.
+- 기기별 가계부 분리, 다른 기기 영수증 수정·삭제 차단, 영수증·여행 값 검증, 소수 환율 보존, PAGE 2 반경·공유 동의·카테고리·검색·정렬·구매수, 개인정보 제외, 허용 origin, MySQL 프로필 자동 생성 끔.
 - OCR 키 미설정·지원 사진·인식 실패·상품별 수량과 단가·Spring AI 스키마.
 - 실제 Java 서버를 사용하는 Chrome 등록·수정·삭제·복원·검색·위치·사진·공유·철회·화면 크기 검증.
 - TypeScript·웹 빌드·iOS/Android 번들·Expo Doctor. 실제 기기와 유료 OCR 호출은 별도 확인.
@@ -68,7 +69,14 @@
 - [x] PAGE 2 카테고리 둘러보기·정렬 필터 (가상 시연 기록)
 - [x] Mapbox 지도 타일
 - [ ] 거리순 정렬 (현재 위치 연동 후)
-- [x] 가계부·공유 기록 DB 설계와 연결 (MySQL, `docs/schema.sql`)
-- [x] 영수증 OCR을 Claude(Spring AI ChatClient)·multipart 업로드로 전환
+- [x] MySQL 드라이버·`mysql` 프로필 (테이블 자동 생성 끔)
+- [x] DB 설계와 `travel_won` 테이블 생성 ([docs/db-design.md](docs/db-design.md))
+- [x] 서버를 새 DB 구조로 전환 (가계부 저장·조회 API, PAGE 2 카테고리·검색 API)
+- [ ] 앱을 새 API로 전환 (가계부 서버 저장, 시연 위치 도쿄, 환율 소수 입력, 브라우저 검증 수정)
+- [ ] OCR에 PAGE 2 카테고리 추천 추가
+- [x] 신주쿠 주변 일본(JPY) 가데이터 CSV ([sample-data/](sample-data/README.md))
+- [ ] 가데이터 DB 적재 (결정 대기)
 - [ ] 상품명 검색(예: 도리토스)을 실제 적재 데이터로 확인
+- [x] 영수증 OCR을 Claude(Spring AI ChatClient)·multipart 업로드로 전환
 - [x] 한국수출입은행 환율 불러오기·소수 환율(소수 4자리) 저장과 계산
+- [ ] 앱의 공유 방식(지금은 동의 절차 없이 공유)을 서버 설계(선택 동의·매장 위치 필수)와 맞추기

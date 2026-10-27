@@ -1,5 +1,5 @@
 package com.wonit.travel.price;
 
-public record PriceRecord(String id, String receiptId, String store, String address,
-        Double latitude, Double longitude, String product, String original, String normalized,
-        String currency, String date, Long unitMinor, String recordedAt, Boolean demo) {}
+// PAGE 2에 보여 줄 매장·상품별 최근 가격입니다. 기기 정보는 담지 않습니다.
+public record PriceRecord(String id, String store, String address, double latitude, double longitude,
+        String product, String currency, String date, long unitMinor, String category, int count, long distance) {}

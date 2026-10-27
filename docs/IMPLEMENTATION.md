@@ -86,3 +86,20 @@
 | 웹 화면 (헤드리스 Chrome)    | 새 영수증을 열면 자동 조회, 실패 시 여행 설정 환율 유지와 빨간 안내, 직접 입력 우선, 1477.87 환율 저장 후 목록 1,478원, 콘솔 오류 없음 |
 
 브라우저 검증(`scripts/browser-check.mjs`)은 `--KOREAEXIM_API_KEY=`로 실제 환율 API를 부르지 않습니다. 새 서버 코드로 띄운 상태에서 실제 값이 자동으로 채워지는 것과, 고시 전(오전) 오늘 날짜 조회가 빈 응답인지는 확인하지 않았습니다.
+
+## main 병합 (2026-10-28)
+
+- main(`93387ea`까지)과 병합했습니다. DB는 main 방식입니다: 기본 실행은 H2 파일 DB, MySQL(`travel_won`)은 `mysql` 프로필(`ddl-auto=none`)에서만 씁니다. 위 두 항목의 `docs/schema.sql`·ALTER 안내는 더 이상 해당하지 않습니다.
+- 서버 저장은 main의 4개 테이블 구현(`ledger/`·`LedgerController`·`price/`, [db-design.md](db-design.md))을 그대로 씁니다. 이 브랜치의 9개 테이블용 코드(`ledger/` 엔티티·`CategorySeeder`·지오코딩, `price/`, OCR 이력 `ocr_history`, `docs/schema.sql`)는 지웠습니다.
+- OCR은 이 브랜치의 Claude(`POST /api/receipts/ocr`)를 유지하고 main의 OpenAI `OcrService`(`POST /ocr`)는 지웠습니다. 오늘 환율(`GET /api/exchange-rates/{currency}`)도 이 브랜치 그대로입니다.
+- 앱은 아직 `PUT /ledger`(가계부 전체 저장)로 동기화해 main의 새 API(`PUT /trip`·`POST /receipts` 등)와 맞지 않습니다(405). 앱을 새 API로 바꾸기 전까지는 기기 기록만 표시합니다. 또 앱은 동의 절차 없이 공유하지만 서버 설계는 선택 동의·매장 위치 필수라, 앱 전환 때 맞춰야 합니다.
+- 공용 `travel_won`은 이 브랜치 서버가 `ddl-auto=update`로 테이블 5개·컬럼 9개를 추가한 상태였습니다. 백업한 뒤 테이블 9개를 모두 지워 비워 두었으며, `db-schema-mysql.sql`로 다시 만들어야 합니다.
+- 브라우저 검증은 H2 메모리 DB로 서버를 띄우고, 서버 가격 공유(`/prices`)·주소 좌표 변환 확인 2개는 앱을 새 API로 바꾼 뒤 되살립니다.
+
+| 항목                   | 결과                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `./gradlew test`       | 33개 통과 (API 19개: 가계부·가격 13·OCR 4·환율 2, 초안 변환 5개, 환율 8개, MySQL 프로필 1개)              |
+| `npm test`·`typecheck` | 21개 통과 · 통과                                                                                       |
+| 기본 실행(H2 파일 JAR) | 새 기기 `/ledger` 빈 가계부, `POST /receipts` 환율 8.3983 저장, `/prices` 1건, 실제 환율(EUR 1477.87), `/ocr` 404, 앱의 `PUT /ledger` 405 |
+
+`npm run test:browser`는 실행하지 않았습니다.

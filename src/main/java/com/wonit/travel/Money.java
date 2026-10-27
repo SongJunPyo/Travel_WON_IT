@@ -22,16 +22,11 @@ public final class Money {
             return -1;
         }
     }
-    /** 앱의 toWon과 같은 계산: 최소 단위 × 적용 환율(소수 포함)을 끝까지 계산한 뒤 원 단위로 사사오입합니다. */
-    public static long toWon(long minor, String currency, BigDecimal rate) {
-        return BigDecimal.valueOf(minor).multiply(rate).movePointLeft(DECIMALS.get(currency))
-                .setScale(0, RoundingMode.HALF_UP).longValueExact();
-    }
     /** 적용 환율(1 외화당 원화)은 0보다 크고 1,000,000 이하, 소수 4자리까지입니다. */
     public static boolean validRate(BigDecimal rate) {
         return rate != null && rate.signum() > 0 && rate.compareTo(MAX_RATE) <= 0 && rate.stripTrailingZeros().scale() <= 4;
     }
-    /** DB의 DECIMAL(14,4) 값(1600.0000)을 앱에 줄 때 뒤의 0을 뺍니다(1600, 8.3983). */
+    /** 계산한 환율(8.398300)을 앱에 줄 때 뒤의 0을 뺍니다(1600, 8.3983). */
     public static BigDecimal compactRate(BigDecimal rate) {
         BigDecimal stripped = rate.stripTrailingZeros();
         return stripped.scale() < 0 ? stripped.setScale(0) : stripped;

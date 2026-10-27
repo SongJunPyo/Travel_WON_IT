@@ -56,7 +56,7 @@ public class ReceiptDraftMapper {
         if (!Money.supported(currency) || total < 1 || items.isEmpty() || items.size() > 100) {
             throw new DomainException(ErrorCode.OCR_FAILED);
         }
-        String category = r.category() != null && LedgerService.CATEGORIES.contains(r.category().strip())
+        String category = r.category() != null && LedgerService.LEDGER_CATEGORIES.contains(r.category().strip())
                 ? r.category().strip() : "기타";
         return new ReceiptDraft(store(r.store()), address(r.address()), date(r.date()), currency, category, total, List.copyOf(items));
     }

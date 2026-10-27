@@ -10,6 +10,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -40,6 +41,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<Map<String, String>> invalidJson() {
         return ResponseEntity.badRequest().body(Map.of("error", "요청 데이터를 읽지 못했어요."));
+    }
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<Map<String, String>> invalidParameter() {
+        return ResponseEntity.badRequest().body(Map.of("error", "요청 값의 형식을 확인해 주세요."));
     }
     @ExceptionHandler(Exception.class)
     ResponseEntity<Map<String, String>> unexpected(Exception e) {

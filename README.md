@@ -1,6 +1,6 @@
 # 여행WON해 — 영수증 기반 여행 가계부·가격 탐색 앱
 
-영수증 한 장으로 여행 가계부를 쓰고, 다른 여행자의 영수증 기록으로 상품 가격과 매장을 살펴보는 모바일 여행 앱입니다. 영수증 사진을 AI가 읽어 매장·구매일·상품별 가격을 정리합니다. 실제 영수증 기록은 별도 동의 절차 없이 다른 여행자의 가격 비교 데이터가 됩니다(편집 화면에 공유 안내 표시).
+영수증 한 장으로 여행 가계부를 쓰고, 다른 여행자의 영수증 기록으로 상품 가격과 매장을 살펴보는 모바일 여행 앱입니다. 영수증 사진을 AI가 읽어 매장·구매일·상품별 가격을 정리합니다. 공유에 동의한 기록은 다른 여행자의 가격 비교 데이터가 됩니다.
 
 앱은 Expo·React Native(iOS·Android·웹), 서버는 Java 21·Spring Boot·Spring AI로 만들었습니다. 기존 서비스의 이름 **여행WON해**, 테마 색 `#0067AC`, 여행푸딩 캐릭터를 이어 씁니다. `my-hackathon`과는 독립적으로 실행하는 프로젝트이며, 기존 프로젝트의 데이터는 옮겨 오지 않습니다.
 
@@ -30,7 +30,7 @@
 - **매장별 가격**: 같은 상품의 매장별 최신 구매가격, 구매일, 거리, 도보 추정 시간을 보여 주고 가격순·거리순으로 정렬합니다.
 - **카테고리 둘러보기**: 식당·명소·화장품·의류·뷰티·웰니스·숙박·액티비티·렌트 중 하나를 고르면 매장·상품별 최근 구매가격, 최근 구매일, 구매 횟수를 보여 줍니다. 가격순·구매수·최신순으로 정렬하고, 거리순은 현재 위치 연동 후 제공합니다.
 - **내 위치**: "내 위치"를 눌러 위치 권한을 허용하면 현재 위치 기준으로 공유 기록을 조회합니다. 누르기 전에는 파리 중심부의 시연 위치와 가상 매장을 보여 줍니다.
-- **가격 공유**: 동의 절차 없이 실제 영수증은 모두 공유하며, 매장 위치는 영수증의 매장 주소로 서버가 자동으로 찾고(Mapbox 토큰이 있으면 Mapbox, 없으면 OpenStreetMap Nominatim), 좌표를 찾은 영수증의 상품만 지도 가격 비교에 나옵니다. 시연 영수증은 공유하지 않습니다. 영수증 사진과 개인 결제정보는 공유하지 않습니다.
+- **가격 공유**: 서버는 공유에 동의하고 매장 주소와 매장 위치를 확인한 실제 영수증의 상품만 공유합니다. 지금 앱은 동의 절차 없이 실제 영수증을 공유 대상으로 표시하며, 서버 설계와 맞추는 작업이 남아 있습니다. 영수증 사진과 개인 결제정보는 공유하지 않습니다.
 
 > 영수증 가격은 과거 구매가격이므로 현재 판매가격과 재고는 다를 수 있습니다. 도보 시간은 직선거리 기준 추정치입니다.
 
@@ -48,23 +48,32 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 
 ## 데이터와 한계
 
-- 가계부와 여행 설정은 서버의 MySQL(`travel_wonhae` DB)에 기기별로 저장하고, 기기의 AsyncStorage에도 사본을 둡니다(웹은 브라우저 localStorage). 기기에 사본이 없으면 서버에서 불러옵니다.
-- 테이블 구조는 [`docs/schema.sql`](docs/schema.sql)에 있습니다: 기기(사용자)·여행·카테고리·가게(가게명/위치/면세여부)·상품(정규화 품목명/카테고리)·가게-상품(최근 가격)·영수증·영수증 품목·사진 인식 이력. 서버가 시작할 때 JPA가 같은 구조를 자동으로 만듭니다.
-- 기기 토큰은 SHA-256 해시로만 보관하고, 기기별 가계부를 통째로 교체해 삭제를 반영합니다. 가격 비교에는 위치·주소가 있고 시연 기록이 아닌 품목이 나옵니다. 앱을 지워도 서버 기록은 지워지지 않으므로, 먼저 영수증을 삭제해야 합니다.
-- 금액은 최소 통화 단위 정수로 저장합니다(EUR·USD·THB는 센트, JPY·KRW는 엔·원). 적용 환율은 소수 4자리까지 저장하고(DB `DECIMAL(14,4)`), 원화 환산은 금액 × 환율을 끝까지 계산한 뒤 원 단위로 반올림합니다(1000엔 × 8.3983 = 8,398원).
+- 가계부와 여행 설정은 기기의 AsyncStorage에 저장합니다. 웹에서는 해당 주소의 브라우저 localStorage를 씁니다.
+- 서버는 기기·여행·영수증·품목 4개 테이블에 저장합니다([docs/db-design.md](docs/db-design.md)). 기본은 H2 파일 DB(`data/prices.mv.db`)이고, `npm run server:mysql`로 실행하면 MySQL(`travel_won`)을 씁니다. 기기 토큰은 SHA-256 해시로만 보관합니다. PAGE 2에는 공유에 동의하고 매장 위치가 있는 영수증만 나옵니다.
+- **전환 중:** 서버는 새 구조로 바뀌었지만 앱은 아직 예전 방식(`PUT /ledger`로 가계부 전체 저장)으로 동기화합니다. 앱을 새 API로 바꾸기 전까지는 서버를 켜도 화면에 "서버에 연결하지 못했어요"가 나오고, 내 기기의 기록만 보입니다.
+- 금액은 최소 통화 단위 정수로 저장합니다(EUR·USD·THB는 센트, JPY·KRW는 엔·원). 적용 환율은 소수 4자리까지 받고(`travel_won` 설계는 `DECIMAL(12,4)`), 원화 환산은 금액 × 환율을 끝까지 계산한 뒤 원 단위로 반올림합니다(1000엔 × 8.3983 = 8,398원).
 - 불러온 환율은 영업일마다 고시되는 한국수출입은행 매매기준율로, 참고값입니다. 실시간 환율이나 실제 카드 결제 환율과 다를 수 있습니다. 주말·공휴일·고시 전에는 가장 최근 고시일(최대 7일 전) 값을 씁니다.
 - **시연 데이터**: 처음 실행할 때 보이는 영수증 6건, 평균 소비 비율, 파리의 가상 매장과 가격, 카테고리 둘러보기 기록은 모두 가상입니다. 시연 영수증은 여행 설정에서 지울 수 있습니다.
-- 카테고리 둘러보기는 아직 실제 공유 기록과 연결되지 않았습니다. 공유 기록에 카테고리 정보가 없기 때문이며, 가계부·공유 기록 DB를 설계한 뒤 연결할 예정입니다.
+- 카테고리 둘러보기 화면은 아직 가상 시연 기록을 씁니다. 서버의 카테고리·검색 조회(`GET /prices`)는 준비됐고, 앱 연결은 다음 단계입니다.
 - AI 상품 추천과 거리순 정렬은 아직 구현하지 않았습니다. 상품명 검색은 실제 데이터가 쌓인 뒤 다시 확인할 예정입니다.
 - 서버는 로컬 해커톤용 단일 프로세스입니다. 공개 운영에는 사용자 인증, HTTPS, 운영 DB, 접근 제어·비용 한도, 데이터 보관 정책이 필요합니다.
 
 ## 로컬에서 실행하기
 
-API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 시연 가격 비교, 카테고리 둘러보기를 사용할 수 있습니다. 사진 분석과 가격 공유에는 API 서버가 필요합니다.
+이 프로젝트는 **화면(앱)**과 **API 서버**를 따로 실행합니다. 화면만으로도 가계부 기록·수정·삭제, 소비 시각화, 시연 가격 비교, 카테고리 둘러보기를 쓸 수 있습니다. 사진 분석과 가격 공유를 쓸 때만 API 서버를 함께 켭니다.
+
+| 무엇      | 명령             | 주소                                                     | 화면     |
+| --------- | ---------------- | -------------------------------------------------------- | -------- |
+| 웹 화면   | `npm run web`    | [http://localhost:8081](http://localhost:8081)           | 있음     |
+| 휴대폰 앱 | `npm start`      | Expo Go로 QR 코드 스캔                                   | 있음     |
+| API 서버  | `npm run server` | `http://localhost:8787` (상태 확인: `/health`)           | **없음** |
+| API 서버 (MySQL) | `npm run server:mysql` | 위와 같음. DB만 MySQL(`travel_won`)                | **없음** |
+
+> `npm run dev`는 이 프로젝트에 없습니다. 실행하면 `Missing script: "dev"` 오류가 납니다. `npm run dev`는 이전 프로젝트 `my-hackathon`(Vite, 5173 포트)의 명령입니다.
 
 1. **실행 환경 확인**
 
-   앱은 Node.js **22.13 이상**과 npm, API 서버는 **Java 21**이 필요합니다. Gradle은 포함된 `./gradlew`를 사용합니다.
+   앱은 Node.js **22.13 이상**과 npm, API 서버는 **JDK 21**이 필요합니다. 다른 버전의 JDK만 설치돼 있으면 서버를 빌드할 수 없습니다. Gradle은 포함된 `./gradlew`를 쓰므로 따로 설치하지 않습니다.
 
    ```bash
    node --version
@@ -74,51 +83,67 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
 
 2. **프로젝트 폴더로 이동하고 의존성 설치**
 
-   아래 명령은 프로젝트 루트인 `travel_WONIT/`에서 실행합니다. 현재 위치가 상위 `98_HACKATHON/`이라면 먼저 `cd travel_WONIT`을 실행합니다.
+   아래 명령은 모두 프로젝트 루트인 `travel_WONIT/`에서 실행합니다. 현재 위치가 상위 `98_HACKATHON/`이라면 먼저 `cd travel_WONIT`을 실행합니다.
 
    ```bash
    npm ci
    ```
 
-3. **환경 변수 설정**
+3. **`.env` 만들기**
 
-   [`.env.example`](.env.example)을 참고해 프로젝트 루트의 `.env`에 값을 넣습니다. `.env`는 Git에서 제외됩니다. 서버는 이 파일을 Spring 설정으로 직접 읽고, OS 환경변수도 사용할 수 있습니다.
+   `.env`는 Git에 올라가지 않으므로 clone한 뒤 직접 만듭니다. 없어도 화면은 실행되지만, 사진 분석과 Mapbox 지도를 쓰려면 필요합니다. 키 값은 팀 안에서 따로 전달받습니다.
+
+   ```bash
+   cp .env.example .env      # Windows: copy .env.example .env
+   ```
 
    | 변수                       | 용도                                                                                             | 필요한 경우             |
    | -------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------- |
    | `ANTHROPIC_API_KEY`        | 영수증 사진 분석(Claude). 서버에서만 읽습니다                                                    | 사진 분석               |
    | `AI_MODEL`                 | 분석 모델. 기본값 `claude-haiku-5-5`                                                             | 선택                    |
-   | `KOREAEXIM_API_KEY`        | 한국수출입은행 현재환율 API 인증키("오늘 환율" 버튼). 서버에서만 읽습니다                         | 환율 불러오기           |
-   | `DB_URL`                   | MySQL 주소. 기본값 `jdbc:mysql://localhost:3306/travel_wonhae?createDatabaseIfNotExist=true…`    | 다른 DB 주소            |
-   | `DB_USERNAME`·`DB_PASSWORD` | MySQL 계정. 기본값 `root`·빈 값                                                                 | 서버 실행               |
+   | `KOREAEXIM_API_KEY`        | 한국수출입은행 현재환율 API 인증키(적용 환율 자동 기본값). 서버에서만 읽습니다                    | 오늘 환율 채우기        |
    | `PORT`                     | API 서버 포트. 기본값 `8787`                                                                     | 선택                    |
    | `EXPO_PUBLIC_API_URL`      | 앱이 호출할 API 주소. 기본값 `http://localhost:8787`, Android 에뮬레이터는 `http://10.0.2.2:8787` | 실기기, 다른 주소       |
-   | `EXPO_PUBLIC_MAPBOX_TOKEN` | Mapbox 지도 공개 토큰(`pk.`로 시작). 없으면 OpenStreetMap 지도를 씁니다. 서버의 매장 주소 → 좌표 변환에도 씁니다 | 선택                    |
-   | `MAPBOX_TOKEN`             | 서버 지오코딩 전용 Mapbox 토큰. 없으면 위 토큰, 그것도 없으면 Nominatim(키 불필요)                 | 선택                    |
-   | `ALLOWED_ORIGINS`          | 웹에서 API를 호출할 수 있는 origin(쉼표로 구분)                                                  | 웹을 다른 포트로 열 때 |
+   | `EXPO_PUBLIC_MAPBOX_TOKEN` | Mapbox 지도 공개 토큰(`pk.`로 시작). 없으면 OpenStreetMap 지도를 씁니다                          | 선택                    |
+   | `ALLOWED_ORIGINS`          | 웹에서 API를 호출할 수 있는 origin(쉼표로 구분)                                                  | 웹을 다른 주소로 열 때 |
+   | `DB_URL`                   | MySQL 주소. 예: `jdbc:mysql://<호스트>:3306/travel_won?serverTimezone=Asia/Seoul&characterEncoding=UTF-8` | `npm run server:mysql` |
+   | `DB_USERNAME`, `DB_PASSWORD` | MySQL 계정과 비밀번호. 팀 안에서 따로 전달받습니다                                              | `npm run server:mysql` |
 
-   `EXPO_PUBLIC_`으로 시작하는 값은 앱 번들에 포함되어 누구나 볼 수 있습니다. 비밀 키는 넣지 마세요. 값을 바꾼 뒤에는 Expo 개발 서버를 다시 시작합니다.
+   `EXPO_PUBLIC_`으로 시작하는 값은 앱 번들에 포함되어 누구나 볼 수 있으니 비밀 키를 넣지 않습니다. `EXPO_PUBLIC_` 값을 바꾸면 Expo(`npm run web`·`npm start`)를, 나머지 값을 바꾸면 API 서버를 다시 시작합니다.
 
-4. **API 서버 실행** (가계부 저장·사진 분석·가격 공유를 쓸 때). MySQL 8이 실행 중이어야 합니다.
-
-   별도의 터미널에서 실행합니다. 기본 주소는 `http://localhost:8787`이고, `/health`로 상태를 확인할 수 있습니다.
-
-   ```bash
-   npm run server
-   # 같은 명령: ./gradlew bootRun (Windows: gradlew.bat bootRun)
-   ```
-
-5. **앱 실행**
-
-   브라우저에서 확인할 때:
+4. **웹 화면 실행**
 
    ```bash
    npm run web
    ```
 
-   기본 주소는 [http://localhost:8081](http://localhost:8081)입니다. 위치 기능은 localhost 또는 HTTPS에서만 동작합니다.
+   브라우저에서 [http://localhost:8081](http://localhost:8081)을 엽니다. 위치 기능은 localhost 또는 HTTPS에서만 동작합니다.
 
-   휴대폰에서 확인할 때:
+   8081 포트를 이미 다른 프로그램이 쓰고 있으면 Expo가 다른 포트를 쓸지 묻습니다. 다른 포트로 열면 API 서버 연결이 막힙니다(CORS). 8081을 쓰는 프로그램을 끄거나, 새 주소를 `ALLOWED_ORIGINS`에 추가하고 API 서버를 다시 시작합니다.
+
+5. **API 서버 실행** (가계부 저장·사진 분석·가격 비교·오늘 환율을 쓸 때)
+
+   웹 화면과 **별도의 터미널**에서 실행합니다.
+
+   ```bash
+   npm run server            # macOS·Linux
+   .\gradlew.bat bootRun     # Windows (npm run server는 Windows에서 동작하지 않습니다)
+   ```
+
+   처음 실행할 때는 Gradle과 라이브러리를 내려받느라 시간이 걸립니다. 터미널에 `Started TravelWonhaeApplication`이 나오면 준비된 것입니다.
+
+   이 서버에는 **화면이 없습니다.** 브라우저로 [http://localhost:8787/health](http://localhost:8787/health)를 열어 `"ok":true`가 보이면 정상입니다. `http://localhost:8787` 자체를 열면 "요청 경로나 형식을 확인해 주세요"라는 오류가 나오는데, 이것도 정상입니다. 앱 화면은 4단계의 8081 주소에서 봅니다.
+
+   **MySQL(`travel_won`)로 실행하기:** `.env`에 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`를 넣고 아래 명령을 실행합니다. `.env`에 DB 값이 있어도 `npm run server`는 항상 H2를 씁니다.
+
+   ```bash
+   npm run server:mysql                                            # macOS·Linux
+   .\gradlew.bat bootRun --args="--spring.profiles.active=mysql"   # Windows
+   ```
+
+   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만듭니다(지금 `travel_won`은 비어 있어 이 파일을 다시 실행해야 합니다). 앱은 아직 새 API로 바꾸기 전입니다([데이터와 한계](#데이터와-한계) 참고).
+
+6. **휴대폰에서 실행** (선택)
 
    ```bash
    npm start
@@ -126,15 +151,33 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
 
    휴대폰과 개발 컴퓨터를 같은 Wi-Fi에 연결하고, Expo SDK 58을 지원하는 Expo Go로 터미널의 QR 코드를 스캔합니다. 자세한 순서는 [iPhone에서 시연하기](#iphone에서-시연하기)를 참고합니다.
 
-6. **종료**
+7. **종료**
 
    각 터미널에서 `Ctrl + C`를 누릅니다.
+
+### 자주 막히는 곳
+
+| 증상                                                         | 원인과 해결                                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev` → `Missing script: "dev"`                      | 이 프로젝트의 웹 화면 명령은 `npm run web`입니다.                                                                                                                            |
+| `localhost:8787`을 열었더니 화면 대신 오류 문구(JSON)가 보임 | 정상입니다. API 서버라 화면이 없습니다. 화면은 `npm run web` → `http://localhost:8081`, 서버 상태는 `/health`로 확인합니다.                                                  |
+| Windows에서 `npm run server` → `'.' is not recognized`       | Windows에서는 `.\gradlew.bat bootRun`을 실행합니다.                                                                                                                            |
+| `./gradlew: Permission denied`                               | ZIP으로 받으면 실행 권한이 빠질 수 있습니다. `chmod +x gradlew`를 한 번 실행합니다.                                                                                          |
+| 서버 빌드 중 Java 21을 찾지 못한다는 오류                   | JDK 21을 설치합니다. `java -version`이 다른 버전이어도 JDK 21이 설치돼 있으면 Gradle이 찾아 씁니다.                                                                          |
+| `Port 8787 was already in use`                               | 다른 터미널에서 서버가 이미 실행 중입니다. 그 서버를 끄거나, `.env`의 `PORT`와 `EXPO_PUBLIC_API_URL`을 함께 바꿉니다.                                                        |
+| 화면에 "서버에 연결하지 못했어요"                            | API 서버가 꺼져 있거나, 웹을 8081이 아닌 주소로 열었습니다(CORS). 서버를 켜고, 다른 주소라면 `ALLOWED_ORIGINS`에 추가한 뒤 서버를 다시 시작합니다.                           |
+| 사진 분석 시 "지금은 사진 인식을 쓸 수 없어요"               | `.env`에 `ANTHROPIC_API_KEY`를 넣고 API 서버를 다시 시작합니다.                                                                                                              |
+| 지도가 Mapbox가 아닌 OpenStreetMap으로 보임                  | `.env`에 `EXPO_PUBLIC_MAPBOX_TOKEN`이 없습니다. 넣은 뒤 Expo를 다시 시작합니다.                                                                                              |
+| `npm run server:mysql` → `Could not resolve placeholder 'DB_URL'` | `.env`에 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`가 없습니다. 3단계 표를 참고해 넣습니다.                                                                                         |
+| `npm run server:mysql` → `Access denied for user`            | `DB_USERNAME`·`DB_PASSWORD` 값을 확인합니다.                                                                                                                                 |
+| 터미널 `mysql` 명령 → `Authentication plugin 'mysql_native_password' cannot be loaded` | 최신 MySQL 클라이언트에 이 인증 방식이 없습니다. MySQL 8.4 이하 클라이언트나 DBeaver·MySQL Workbench 같은 GUI 도구로 접속합니다. 앱 서버 연결에는 영향이 없습니다. |
+| 휴대폰에서 서버에 연결하지 못함                              | `EXPO_PUBLIC_API_URL`이 `localhost`이면 휴대폰 자기 자신을 가리킵니다. Mac의 LAN 주소로 바꾸고 Expo를 다시 시작합니다.                                                       |
 
 ## iPhone에서 시연하기
 
 1. App Store에서 **Expo Go**를 설치합니다.
 2. `.env`의 `EXPO_PUBLIC_API_URL`을 Mac의 LAN 주소로 바꿉니다(예: `http://192.168.0.10:8787`). macOS 방화벽에서 Java가 들어오는 연결을 받을 수 있게 허용합니다.
-3. `.env`에 `ANTHROPIC_API_KEY`와 MySQL 계정을 넣고 `npm run server`와 `npm start`를 실행한 뒤, iPhone 카메라 앱으로 QR 코드를 스캔합니다.
+3. `.env`에 `ANTHROPIC_API_KEY`를 넣고 `npm run server`와 `npm start`를 실행한 뒤, iPhone 카메라 앱으로 QR 코드를 스캔합니다.
 4. 가계부의 **영수증 한 장으로, 기록 끝!** → **촬영하기**를 눌러 영수증을 찍습니다. 인식 결과를 확인하고 저장합니다.
 
 - Expo Go에서는 앱 아이콘 대신 Expo Go 아이콘으로 실행됩니다. 여행WON해 아이콘의 독립 앱으로 설치하려면 Apple Developer Program에 가입하고 EAS Build나 TestFlight로 빌드해야 합니다. 독립 앱은 평문 HTTP 주소가 iOS 보안 정책에 막힐 수 있으므로 HTTPS 주소를 권장합니다.
@@ -147,9 +190,14 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
 | GET    | `/health` | 서버 상태와 OCR 키 설정 여부                                                           |
 | POST   | `/api/receipts/ocr` | 영수증 사진 분석. multipart `file`(JPG·PNG·WEBP, 10MB 이하). IP당 시간당 20회. 오류는 `{errors:[{field, code, message}]}` |
 | GET    | `/api/exchange-rates/{currency}` | 1 외화당 원화 참고 환율 `{currency, rate, date, source}`(한국수출입은행 매매기준율). 불러오지 못하면 503 `RATE_UNAVAILABLE` |
-| GET    | `/ledger` | 이 기기의 가계부(`{state}`, 없으면 `null`). `Authorization: Bearer <기기 토큰>` 헤더 필요 |
-| PUT    | `/ledger` | 이 기기의 가계부를 통째로 교체. `Authorization: Bearer <기기 토큰>` 헤더 필요 |
-| GET    | `/prices` | 시연이 아닌 영수증 품목으로 만든 상품 가격 기록                                        |
+| GET    | `/ledger` | 내 여행 설정과 영수증 목록. 처음 보는 기기는 빈 가계부                                 |
+| PUT    | `/trip`   | 여행 설정 저장(기기당 1개). 환율은 소수 4자리까지                                     |
+| POST   | `/receipts` | 영수증 저장. 상품 합계와 총액이 같아야 하고, 공유하려면 매장 위치가 필요             |
+| PUT    | `/receipts/{id}` | 내 영수증 수정(품목은 통째로 교체). 다른 기기의 영수증은 404                     |
+| DELETE | `/receipts/{id}` | 내 영수증 삭제(품목도 함께 삭제)                                                 |
+| GET    | `/prices` | PAGE 2 조회. `currency`·`latitude`·`longitude` 필수, `category`·`q`(상품명)·`sort`(가격순·구매수·최신순)·`radius`(기본 3000m) 선택. 매장·상품별 최근 가격과 구매수 |
+
+`/ledger`·`/trip`·`/receipts`는 `Authorization: Bearer <기기 토큰>` 헤더가 필요합니다. 기기 토큰은 앱이 처음 실행할 때 만듭니다.
 
 ## 프로젝트 구조
 
@@ -176,14 +224,17 @@ travel_WONIT/
 │   ├── types.ts                  공용 타입
 │   ├── main/java/com/wonit/travel/
 │   │   ├── api/                  REST 컨트롤러·CORS·오류 처리·요청 크기 제한
-│   │   ├── ocr/                  Claude 영수증 리더(Spring AI ChatClient)·초안 변환·인식 이력
-│   │   ├── ledger/               가계부 JPA 엔티티·저장소·저장 서비스(기기·여행·가게·상품·영수증)
-│   │   └── price/                공유 가격 조회·상품명 정규화
-│   ├── main/resources/           Spring 설정
-│   └── test/java/                JUnit 5 API·DB·OCR 테스트
-├── tests/domain.test.mjs         계산·정규화·가격 공유·카테고리 테스트
+│   │   ├── ocr/                  Claude 영수증 리더(Spring AI ChatClient)·초안 변환
+│   │   ├── ledger/               가계부: 기기·여행·영수증·품목 JPA 엔티티·저장소·서비스
+│   │   ├── price/                PAGE 2 조회: 반경·카테고리·검색·정렬
+│   │   └── rate/                 한국수출입은행 환율 조회·고시일 캐시
+│   ├── main/resources/           Spring 설정 (기본 H2, mysql 프로필)
+│   └── test/java/                JUnit 5 API·DB·OCR·환율·MySQL 프로필 테스트
+├── tests/domain.test.mjs         계산·정규화·공유 동의·카테고리 테스트
 ├── scripts/browser-check.mjs     Chrome 사용자 흐름 검증
-├── build.gradle                  Java 21·Spring Boot·Spring AI(Anthropic)·JPA·MySQL (테스트는 H2)
+├── scripts/sample-data.mjs       시연용 가데이터 CSV 생성 (npm run sample-data)
+├── sample-data/                  도쿄 신주쿠 가데이터 CSV (DB에는 아직 안 넣음)
+├── build.gradle                  Java 21·Spring Boot·Spring AI(Anthropic)·JPA·H2·MySQL 드라이버
 └── docs/                         명세 원본·검토 결과·검증 기록·화면 캡처
 ```
 
@@ -196,11 +247,11 @@ travel_WONIT/
 ```bash
 npm test              # 계산·정규화·카테고리 단위 테스트
 npm run typecheck     # TypeScript 검사
-./gradlew test        # 서버 API·DB·OCR 테스트 (JUnit 5, H2 MySQL 모드라 MySQL 없이 실행)
+./gradlew test        # 서버 API·DB·OCR·환율 테스트 (JUnit 5, H2라 MySQL 없이 실행)
 npm run build:web     # 웹 번들 생성 (dist/)
 ```
 
-브라우저 검증은 웹 번들과 서버 JAR를 빌드한 뒤, 실제 Spring Boot·JPA 서버(MySQL의 `travel_wonhae_browser` DB, 검증 후 테이블 삭제)와 macOS Google Chrome으로 사용자 흐름을 확인합니다. 확인 항목은 예산, 영수증 등록·수정·삭제·복원, 검색, 지도 창 열기·닫기, 카테고리 정렬, 위치, 사진 선택, 공유·철회, 320·390·768px 화면입니다. Claude 연결과 위치는 테스트용 응답으로 대체하므로 실제 영수증을 외부로 보내거나 과금하지 않습니다.
+브라우저 검증은 웹 번들과 서버 JAR를 빌드한 뒤, 실제 Spring Boot·JPA 서버(H2 메모리 DB)와 macOS Google Chrome으로 사용자 흐름을 확인합니다. 서버 가격 공유 확인은 앱을 새 API로 바꾼 뒤 되살립니다. 확인 항목은 예산, 영수증 등록·수정·삭제·복원, 검색, 지도 창 열기·닫기, 카테고리 정렬, 위치, 사진 선택, 공유·철회, 320·390·768px 화면입니다. Claude 연결과 위치는 테스트용 응답으로 대체하므로 실제 영수증을 외부로 보내거나 과금하지 않습니다.
 
 ```bash
 npm run test:browser
@@ -218,6 +269,7 @@ npx expo-doctor
 ## 관련 문서
 
 - [SPEC.md](SPEC.md): 요구사항, 기술 버전과 근거, 테스트·작업 목록
+- [docs/db-design.md](docs/db-design.md): `travel_won` DB 설계와 화면별 쿼리
 - [docs/results.md](docs/results.md): 요구사항·구조 검토 결과와 결정 기록
 - [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md): 개발·검증 기록
 - [docs/sub_SPEC.md](docs/sub_SPEC.md): 개편 명세 원본
