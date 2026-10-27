@@ -317,8 +317,16 @@ try {
     "시연 상품 매장 세 개 검색",
   );
   await screenshot("mobile-compare");
+  const mapShown = `!!document.querySelector('[aria-label="주변 매장 지도"]')`;
+  await check(`!${mapShown}`, "지도는 버튼을 누르기 전까지 숨김");
   await click("store-price-b");
-  await check(bodyHas("시티 마켓 B · €2.10"), "매장 목록과 지도 선택 연결");
+  await click("map-open");
+  await check(
+    `${mapShown}&&document.querySelectorAll('[aria-label="주변 매장 지도"] [aria-label*="€"]').length===3&&${bodyHas("시티 마켓 B · €2.10")}`,
+    "지도 버튼으로 목록 매장 표시와 선택 연결",
+  );
+  await clickLabel("창 닫기");
+  await check(`!${mapShown}`, "X 버튼으로 지도 닫기");
   await set("product-search", "COKE 0.5L");
   await click("search-submit");
   await check(

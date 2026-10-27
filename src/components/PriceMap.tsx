@@ -41,7 +41,7 @@ export function PriceMap({
   const [width, setWidth] = useState(360),
     [zoom, setZoom] = useState(14),
     [failed, setFailed] = useState(false);
-  const height = 265,
+  const height = 360,
     selectedPrice = prices.find((p) => p.id === selected),
     origin = project(selectedPrice || center, zoom),
     left = origin.x - width / 2,
@@ -175,7 +175,7 @@ export function PriceMap({
 }
 const s = StyleSheet.create({
   map: {
-    height: 265,
+    height: 360,
     backgroundColor: "#E6EEF3",
     borderRadius: 20,
     overflow: "hidden",

@@ -40,6 +40,7 @@ function TravelApp() {
     [storageFailed, setStorageFailed] = useState(false);
   const [tab, setTab] = useState("ledger"),
     [visitedCompare, setVisitedCompare] = useState(false),
+    [mapOpen, setMapOpen] = useState(false),
     [editor, setEditor] = useState(false),
     [editing, setEditing] = useState<Receipt | null>(null),
     [settings, setSettings] = useState(false),
@@ -250,37 +251,53 @@ function TravelApp() {
             </Pressable>
           </View>
         </View>
-        <ScrollView
-          ref={scroll}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 15 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ display: tab === "ledger" ? "flex" : "none" }}>
-            <Ledger
-              state={state}
-              onAdd={() => {
-                setEditing(null);
-                setEditor(true);
-              }}
-              onSettings={() => setSettings(true)}
-              onReceipt={(r) => {
-                setEditing(r);
-                setEditor(true);
-              }}
-            />
-          </View>
-          {visitedCompare && (
-            <View style={{ display: tab === "compare" ? "flex" : "none" }}>
-              <Compare
-                records={records}
-                onRefresh={refresh}
-                syncMessage={syncMessage}
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            ref={scroll}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 15 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={{ display: tab === "ledger" ? "flex" : "none" }}>
+              <Ledger
+                state={state}
+                onAdd={() => {
+                  setEditing(null);
+                  setEditor(true);
+                }}
+                onSettings={() => setSettings(true)}
+                onReceipt={(r) => {
+                  setEditing(r);
+                  setEditor(true);
+                }}
               />
             </View>
+            {visitedCompare && (
+              <View style={{ display: tab === "compare" ? "flex" : "none" }}>
+                <Compare
+                  records={records}
+                  onRefresh={refresh}
+                  syncMessage={syncMessage}
+                  mapOpen={mapOpen}
+                  onCloseMap={() => setMapOpen(false)}
+                />
+              </View>
+            )}
+          </ScrollView>
+          {tab === "compare" && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="주변 매장 지도 열기"
+              onPress={() => setMapOpen(true)}
+              testID="map-open"
+              style={({ pressed }) => [s.mapButton, pressed && { opacity: 0.8 }]}
+            >
+              <Icon name="map" color="#fff" size={17} />
+              <Text style={s.mapButtonText}>지도</Text>
+            </Pressable>
           )}
-        </ScrollView>
+        </View>
         {!!notice && (
           <View accessibilityRole="alert" style={s.toast}>
             <Icon
@@ -458,6 +475,21 @@ const s = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.primary,
   },
+  mapButton: {
+    position: "absolute",
+    right: 20,
+    bottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    boxShadow: "0px 6px 16px #0067AC40",
+    zIndex: 10,
+  },
+  mapButtonText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   toast: {
     position: "absolute",
     bottom: 95,

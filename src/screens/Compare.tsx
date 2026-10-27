@@ -21,7 +21,7 @@ import {
   CURRENCIES,
   normalizeProduct,
 } from "../domain.mjs";
-import { colors, Icon, Chip, Empty, Button } from "../components/ui";
+import { colors, Icon, Chip, Empty, Button, Sheet } from "../components/ui";
 import { PriceMap } from "../components/PriceMap";
 import type { Coordinate, Price } from "../types";
 
@@ -29,10 +29,14 @@ export function Compare({
   records,
   onRefresh,
   syncMessage,
+  mapOpen,
+  onCloseMap,
 }: {
   records: Price[];
   onRefresh: () => Promise<void>;
   syncMessage: string;
+  mapOpen: boolean;
+  onCloseMap: () => void;
 }) {
   const [query, setQuery] = useState("코카콜라 500ml"),
     [searched, setSearched] = useState("코카콜라 500ml");
@@ -238,36 +242,6 @@ export function Compare({
           {message}
         </Text>
       ) : null}
-      <PriceMap
-        center={location}
-        prices={shown}
-        selected={selected}
-        onSelect={setSelected}
-      />
-      <View style={s.mapCaption}>
-        <View style={s.mapDot} />
-        <Text style={s.mapCaptionText}>
-          {demo ? "파란 점은 시연 기준 위치예요" : "파란 점은 현재 위치예요"}
-        </Text>
-        <Text style={s.demoBadge}>
-          {demo ? "가상 매장 · 시연 가격" : "공유 영수증 기록"}
-        </Text>
-      </View>
-      {selectedPrice && (
-        <View style={s.selected}>
-          <Icon name="pin" color={colors.primary} size={18} />
-          <Text style={s.selectedText}>
-            {selectedPrice.store} ·{" "}
-            {money(selectedPrice.unitMinor, selectedPrice.currency)}
-          </Text>
-          <Pressable
-            onPress={() => setSelected(null)}
-            accessibilityLabel="매장 선택 해제"
-          >
-            <Icon name="close" size={16} />
-          </Pressable>
-        </View>
-      )}
       {category ? (
         <>
           <View style={s.resultsHead}>
@@ -502,11 +476,56 @@ export function Compare({
           {demo ? "시연 매장의 이름·가격·위치는 모두 가상이에요." : syncMessage}
         </Text>
       </View>
+      {mapOpen && (
+        <Sheet
+          visible
+          title={category ? `${category} 매장 지도` : "주변 매장 지도"}
+          subtitle={`${category || searched || "검색 결과"} · 매장 ${shown.length}곳 · 반경 3km`}
+          onClose={onCloseMap}
+        >
+          <PriceMap
+            center={location}
+            prices={shown}
+            selected={selected}
+            onSelect={setSelected}
+          />
+          <View style={s.mapCaption}>
+            <View style={s.mapDot} />
+            <Text style={s.mapCaptionText}>
+              {demo ? "파란 점은 시연 기준 위치예요" : "파란 점은 현재 위치예요"}
+            </Text>
+            <Text style={s.demoBadge}>
+              {demo ? "가상 매장 · 시연 가격" : "공유 영수증 기록"}
+            </Text>
+          </View>
+          {!shown.length && (
+            <Text style={s.mapEmpty}>
+              지도에 표시할 매장이 없어요. 검색어나 카테고리를 바꿔 보세요.
+            </Text>
+          )}
+          {selectedPrice && (
+            <View style={s.selected}>
+              <Icon name="pin" color={colors.primary} size={18} />
+              <Text style={s.selectedText}>
+                {selectedPrice.store} ·{" "}
+                {money(selectedPrice.unitMinor, selectedPrice.currency)}
+              </Text>
+              <Pressable
+                onPress={() => setSelected(null)}
+                accessibilityLabel="매장 선택 해제"
+              >
+                <Icon name="close" size={16} />
+              </Pressable>
+            </View>
+          )}
+        </Sheet>
+      )}
     </View>
   );
 }
 const s = StyleSheet.create({
-  content: { padding: 24, paddingTop: 14 },
+  // 우하단 지도 버튼이 마지막 내용을 가리지 않도록 아래 여백을 둡니다.
+  content: { padding: 24, paddingTop: 14, paddingBottom: 72 },
   eyebrow: {
     fontSize: 9,
     color: colors.primary,
@@ -611,6 +630,7 @@ const s = StyleSheet.create({
   },
   mapCaptionText: { fontSize: 9, color: colors.muted, flex: 1 },
   demoBadge: { color: "#8AA0B4", fontSize: 8 },
+  mapEmpty: { fontSize: 11, color: colors.muted, marginTop: 12, lineHeight: 18 },
   selected: {
     backgroundColor: "#E6F2FB",
     borderRadius: 12,

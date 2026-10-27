@@ -60,6 +60,7 @@ const paths: Record<string, string> = {
   leaf: "M5 19C5 10 11 5 20 5c0 9-5 15-14 15M5 19l7-7",
   mountain: "M2 20l7-12 5 8 3-4 5 8H2z",
   car: "M3 13l2-6h14l2 6v5H3v-5zM3 13h18M7 18v2M17 18v2M7 15.5h.1M17 15.5h.1",
+  map: "M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14",
 };
 export function Icon({
   name,
