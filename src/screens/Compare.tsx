@@ -36,9 +36,20 @@ const TILE_COLORS: Record<string, string> = {
   관광: "#2F6FB5",
   기타: "#6B5BC4",
 };
+// 추천순일 때 카드에 붙는 추천 이유. AI가 정한 이유에는 'AI 추천' 배지를 붙입니다.
+function RecommendReason({ price }: { price: Price }) {
+  if (!price.reason) return null;
+  return (
+    <View style={s.reasonRow} testID={`reason-${price.id}`}>
+      {price.ai && <Text style={s.aiBadge}>AI 추천</Text>}
+      <Text style={s.reasonText}>{price.reason}</Text>
+    </View>
+  );
+}
 export function Compare({
   active,
   version,
+  profile,
   onRefresh,
   syncMessage,
   mapOpen,
@@ -47,6 +58,8 @@ export function Compare({
   active: boolean;
   // 가계부를 서버에 저장할 때마다 바뀌어, 방금 저장한 영수증도 다시 조회합니다.
   version: number;
+  // 추천순 개인화: 남은 예산 비율(%)과 가장 많이 쓴 카테고리
+  profile: { budgetLeft: number | null; favorite: string | null };
   onRefresh: () => Promise<void>;
   syncMessage: string;
   mapOpen: boolean;
@@ -60,10 +73,10 @@ export function Compare({
     [locating, setLocating] = useState(false),
     [message, setMessage] = useState("");
   const [selected, setSelected] = useState<string | null>(null),
-    [sort, setSort] = useState("가격순");
+    [sort, setSort] = useState("추천순");
   const [currency, setCurrency] = useState("JPY");
   const [category, setCategory] = useState<string | null>(null),
-    [categorySort, setCategorySort] = useState("가격순");
+    [categorySort, setCategorySort] = useState("추천순");
   const [rows, setRows] = useState<Price[]>([]),
     [loading, setLoading] = useState(false),
     [loadError, setLoadError] = useState("");
@@ -71,6 +84,13 @@ export function Compare({
   const [limit, setLimit] = useState(PAGE_SIZE);
   // 신주쿠 시연 가데이터는 엔화(JPY)로 쌓여 있습니다.
   const effectiveCurrency = demo ? "JPY" : currency;
+  // 상품 검색의 거리순은 화면에서 정렬하므로, 서버에는 추천순일 때만 정렬을 보냅니다.
+  const requestSort = category
+    ? categorySort
+    : sort === "추천순"
+      ? "추천순"
+      : undefined;
+  const { budgetLeft, favorite } = profile;
   // 서버가 반경 3km 안의 공유 영수증을 매장·상품별로 묶어 돌려줍니다. 카테고리를 고르면 카테고리, 아니면 검색어로 찾습니다.
   useEffect(() => {
     if (!category && !searched) {
@@ -85,7 +105,9 @@ export function Compare({
     fetchPrices({
       currency: effectiveCurrency,
       location,
-      ...(category ? { category, sort: categorySort } : { q: searched ?? undefined }),
+      ...(category ? { category } : { q: searched ?? undefined }),
+      sort: requestSort,
+      ...(requestSort === "추천순" ? { budgetLeft, favorite } : {}),
     })
       .then((result) => {
         if (!active) return;
@@ -105,11 +127,29 @@ export function Compare({
     return () => {
       active = false;
     };
-  }, [category, categorySort, searched, searchVersion, location, effectiveCurrency, version]);
+  }, [
+    category,
+    requestSort,
+    searched,
+    searchVersion,
+    location,
+    effectiveCurrency,
+    version,
+    budgetLeft,
+    favorite,
+  ]);
   // 조회 조건이나 정렬이 바뀌면 다시 처음 5개부터 보여 줍니다.
   useEffect(() => {
     setLimit(PAGE_SIZE);
-  }, [category, categorySort, searched, searchVersion, sort, location, effectiveCurrency]);
+  }, [
+    category,
+    categorySort,
+    searched,
+    searchVersion,
+    sort,
+    location,
+    effectiveCurrency,
+  ]);
   const prices = category ? [] : rows,
     browsed = category ? rows : [];
   const sorted =
@@ -196,6 +236,7 @@ export function Compare({
                   <Text style={s.storeOriginal}>{storeOriginal(p)}</Text>
                 ) : null}
                 <Text style={s.storeDistance}>{p.product}</Text>
+                <RecommendReason price={p} />
               </View>
               <Text style={s.price}>{money(p.unitMinor, p.currency)}</Text>
             </View>
@@ -402,12 +443,13 @@ export function Compare({
               <Text style={s.count}>{prices.length}</Text>
             </View>
             <View style={{ flexDirection: "row", gap: 6 }}>
-              {["가격순", "거리순"].map((x) => (
+              {["추천순", "가격순", "거리순"].map((x) => (
                 <Chip
                   key={x}
                   title={x}
                   active={sort === x}
                   onPress={() => setSort(x)}
+                  testID={`search-sort-${x}`}
                 />
               ))}
             </View>
@@ -464,6 +506,7 @@ export function Compare({
                       <Text style={[s.storeDistance, { fontSize: 8 }]}>
                         {p.product}
                       </Text>
+                      <RecommendReason price={p} />
                       <Text style={s.storeDistance}>
                         {p.distance < 1000
                           ? `${p.distance}m`
@@ -583,11 +626,20 @@ export function Compare({
               accessible={false}
               testID="search-loading-image"
             />
-            <Text style={s.loadingTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+            <Text
+              style={s.loadingTitle}
+              accessibilityRole="header"
+              accessibilityLiveRegion="polite"
+            >
               검색 중입니다
             </Text>
-            <Text style={s.loadingDescription}>주변 매장의 가격 기록을 찾고 있어요.</Text>
-            <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
+            <Text style={s.loadingDescription}>
+              주변 매장의 가격 기록을 찾고 있어요.
+            </Text>
+            <ActivityIndicator
+              color={colors.primary}
+              style={{ marginTop: 16 }}
+            />
           </View>
         </View>
       </Modal>
@@ -751,8 +803,19 @@ const s = StyleSheet.create({
     boxShadow: "0px 12px 40px #183A5626",
   },
   loadingImage: { width: 208, height: 208, maxWidth: "100%" },
-  loadingTitle: { marginTop: 8, fontSize: 20, fontWeight: "800", color: colors.ink },
-  loadingDescription: { marginTop: 8, fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 18 },
+  loadingTitle: {
+    marginTop: 8,
+    fontSize: 20,
+    fontWeight: "800",
+    color: colors.ink,
+  },
+  loadingDescription: {
+    marginTop: 8,
+    fontSize: 12,
+    color: colors.muted,
+    textAlign: "center",
+    lineHeight: 18,
+  },
   mapCaption: {
     flexDirection: "row",
     alignItems: "center",
@@ -837,6 +900,23 @@ const s = StyleSheet.create({
     borderRadius: 4,
   },
   storeDistance: { fontSize: 9, color: colors.muted, marginTop: 7 },
+  reasonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+    flexWrap: "wrap",
+  },
+  aiBadge: {
+    fontSize: 8,
+    color: "#fff",
+    backgroundColor: colors.primary,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontWeight: "700",
+  },
+  reasonText: { fontSize: 10, color: colors.primary, fontWeight: "600" },
   price: {
     fontSize: 22,
     color: colors.ink,

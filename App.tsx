@@ -26,6 +26,8 @@ import { colors, Icon } from "./src/components/ui";
 import {
   createDemo,
   fingerprint,
+  recommendProfile,
+  summarize,
   validateReceipt,
 } from "./src/domain.mjs";
 import { loadLedger, syncLedger } from "./src/api";
@@ -45,7 +47,8 @@ function TravelApp() {
     [settings, setSettings] = useState(false),
     [notice, setNotice] = useState("");
   const [pricesVersion, setPricesVersion] = useState(0),
-    [syncMessage, setSyncMessage] = useState("가계부를 서버에 저장하고 있어요.");
+    [syncMessage, setSyncMessage] =
+      useState("가계부를 서버에 저장하고 있어요.");
   const token = useRef(""),
     writeQueue = useRef(Promise.resolve()),
     syncQueue = useRef(Promise.resolve());
@@ -53,6 +56,11 @@ function TravelApp() {
     { width } = useWindowDimensions(),
     insets = useSafeAreaInsets();
   const desktop = Platform.OS === "web" && width >= 980;
+  // PAGE 2 추천순 개인화에 쓰는 가계부 요약(남은 예산 비율, 가장 많이 쓴 카테고리)
+  const profile = recommendProfile(
+    summarize(state.receipts, state.trip.budget),
+    state.trip.budget,
+  );
   useEffect(() => {
     if (Platform.OS === "web") {
       document.title = "여행WON해 | 가볍게 기록하고, 현명하게 여행해요";
@@ -281,6 +289,7 @@ function TravelApp() {
                 <Compare
                   active={tab === "compare"}
                   version={pricesVersion}
+                  profile={profile}
                   onRefresh={refresh}
                   syncMessage={syncMessage}
                   mapOpen={mapOpen}
@@ -295,7 +304,10 @@ function TravelApp() {
               accessibilityLabel="주변 매장 지도 열기"
               onPress={() => setMapOpen(true)}
               testID="map-open"
-              style={({ pressed }) => [s.mapButton, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                s.mapButton,
+                pressed && { opacity: 0.8 },
+              ]}
             >
               <Icon name="map" color="#fff" size={17} />
               <Text style={s.mapButtonText}>지도</Text>

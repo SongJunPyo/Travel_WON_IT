@@ -177,6 +177,27 @@ class TravelApiTest {
         prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
     }
+    @Test void 추천순은_가격_인기_최근성_거리를_합친_점수로_정렬하고_이유를_붙인다() throws Exception {
+        save(tokenB, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-26", 300, true),
+                receipt("테스트 매장 B", 35.6930, 139.7040, "2026-10-25", 280, true),
+                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true))).andExpect(status().isOk());
+        save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
+        // A: 가장 비싸지만 구매 2회·가장 가까움, C: 주변 최저가지만 2km 넘게 떨어짐
+        for (String budget : List.of("", "&budgetLeft=10&favorite=음식"))
+            prices("&q=doritos&sort=추천순" + budget)
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(3))
+                    .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                    .andExpect(jsonPath("$.records[0].reason").value("구매 2회로 가장 많음"))
+                    .andExpect(jsonPath("$.records[1].store").value("테스트 매장 B"))
+                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 C"))
+                    .andExpect(jsonPath("$.records[2].reason").value("주변 최저가"))
+                    .andExpect(jsonPath("$.records[0].ai").value(false));
+        // 다른 정렬에는 추천 이유를 붙이지 않습니다.
+        prices("&q=doritos").andExpect(jsonPath("$.records[0].store").value("테스트 매장 C"))
+                .andExpect(jsonPath("$.records[0].reason").isEmpty());
+        prices("&q=doritos&budgetLeft=500").andExpect(status().isBadRequest());
+        prices("&q=doritos&favorite=카페").andExpect(status().isBadRequest());
+    }
     @Test void 상품_검색은_대소문자와_한국어_이름으로_찾는다() throws Exception {
         save(tokenA, List.of(receipt())).andExpect(status().isOk());
         prices("&q=doritos").andExpect(jsonPath("$.records.length()").value(1));

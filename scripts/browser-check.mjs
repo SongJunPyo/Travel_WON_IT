@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const folder = await mkdtemp(join(tmpdir(), "wonhae-browser-"));
-const screenshotFolder = process.env.SCREENSHOT_DIR || fileURLToPath(
-  new URL("../docs/screenshots/", import.meta.url),
-);
+const screenshotFolder =
+  process.env.SCREENSHOT_DIR ||
+  fileURLToPath(new URL("../docs/screenshots/", import.meta.url));
 const { mkdir } = await import("node:fs/promises");
 await mkdir(screenshotFolder, { recursive: true });
 let chrome, ws, staticServer, provider, javaProcess;
@@ -533,8 +533,13 @@ try {
   );
   await screenshot("mobile-search-loading");
   for (let i = 0; i < 50 && !delayedPriceRequests.length; i++) await pause(100);
-  assert.ok(delayedPriceRequests.length, "가격 조회 요청을 기다리는 동안 로딩 표시");
-  await send("Fetch.continueRequest", { requestId: delayedPriceRequests.shift() });
+  assert.ok(
+    delayedPriceRequests.length,
+    "가격 조회 요청을 기다리는 동안 로딩 표시",
+  );
+  await send("Fetch.continueRequest", {
+    requestId: delayedPriceRequests.shift(),
+  });
   await send("Fetch.disable");
   await check(
     `${storeCards}.length===3&&document.querySelector('[data-testid="product-search"]').value==='도리토스'&&!document.querySelector('[data-testid="prices-loading"]')`,
@@ -567,7 +572,9 @@ try {
       { name: "Content-Type", value: "application/json" },
       { name: "Access-Control-Allow-Origin", value: origin },
     ],
-    body: Buffer.from(JSON.stringify({ error: "테스트 조회 실패" })).toString("base64"),
+    body: Buffer.from(JSON.stringify({ error: "테스트 조회 실패" })).toString(
+      "base64",
+    ),
   });
   await send("Fetch.disable");
   await check(
@@ -579,8 +586,18 @@ try {
   await check(noSearchResults, "공백 검색 시 결과와 로딩 숨김");
   await set("product-search", "도리토스");
   await click("search-submit");
+  // 기본 정렬은 추천순: 가격은 중간이지만 가장 가깝고 최근에 산 데일리마트 A가 먼저 나옵니다.
   await check(
-    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')`,
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('데일리마트 A')&&!!document.querySelector('[data-testid^=reason-]')`,
+    "상품 검색 기본 정렬은 추천순이고 추천 이유 표시",
+  );
+  await check(
+    `[...${storeCards}].find((e)=>e.textContent.includes('산고 스토어 B')).textContent.includes('주변 최저가')`,
+    "추천 이유: 같은 상품 주변 최저가",
+  );
+  await click("search-sort-가격순");
+  await check(
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')&&!document.querySelector('[data-testid^=reason-]')`,
     "서버 조회: 반경 안 도리토스 매장 세 곳을 가격순으로 표시",
   );
   await screenshot("mobile-compare");
@@ -613,8 +630,13 @@ try {
   const firstBrowse = `document.querySelector('[data-testid^=browse-]:not([data-testid^=browse-sort])')?.textContent||''`;
   await click("category-음식");
   await check(
-    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('규동 미나토 B')`,
-    "카테고리 선택 시 서버 거래 기록을 가격순으로 표시",
+    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('라멘 소라 A')&&${firstBrowse}.includes('구매 3회로 가장 많음')`,
+    "카테고리 기본 정렬은 추천순(구매가 가장 많은 라멘 소라 A 먼저)",
+  );
+  await click("browse-sort-가격순");
+  await check(
+    `${firstBrowse}.includes('규동 미나토 B')`,
+    "카테고리 가격순 정렬",
   );
   await check(
     `!!(document.querySelector('[data-testid="category-쇼핑"]').compareDocumentPosition(document.querySelector('[data-testid="category-results"]'))&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(document.querySelector('[data-testid="category-results"]').compareDocumentPosition(document.querySelector('[data-testid="category-숙박"]'))&Node.DOCUMENT_POSITION_FOLLOWING)`,

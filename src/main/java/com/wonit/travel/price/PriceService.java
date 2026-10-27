@@ -16,7 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PriceService {
-    // 거리순은 현재 위치 연동 후 제공합니다.
+    // 거리순은 현재 위치 연동 후 제공합니다. 추천순은 PriceRecommender 점수로 정렬합니다.
+    private static final String RECOMMENDED = "추천순";
     private static final Map<String, Comparator<PriceRecord>> ORDER = Map.of(
             "가격순", Comparator.comparingLong(PriceRecord::unitMinor).thenComparing(Comparator.comparingInt(PriceRecord::count).reversed()),
             "구매수", Comparator.comparingInt(PriceRecord::count).reversed().thenComparingLong(PriceRecord::unitMinor),
@@ -27,17 +28,19 @@ public class PriceService {
     // category와 q는 함께 쓸 수 있고, 둘 다 없으면 반경 안의 모든 상품을 돌려줍니다. q는 상품명과 매장명을 찾습니다.
     @Transactional(readOnly = true)
     public List<PriceRecord> browse(String currency, Double latitude, Double longitude, Integer radius,
-            String category, String q, String sort) {
+            String category, String q, String sort, PriceRecommender.Profile profile) {
         int meters = radius == null ? 3000 : radius;
         String order = sort == null ? "가격순" : sort;
         String query = q == null || q.isBlank() ? null : q.strip();
         String key = query == null ? null : LedgerService.normalize(query);
         if (currency == null || !LedgerService.CURRENCIES.contains(currency) || latitude == null || longitude == null
                 || !Double.isFinite(latitude) || Math.abs(latitude) > 85.0511 || !Double.isFinite(longitude) || Math.abs(longitude) > 180
-                || meters < 100 || meters > 20000 || !ORDER.containsKey(order)
+                || meters < 100 || meters > 20000 || !(ORDER.containsKey(order) || RECOMMENDED.equals(order))
+                || (profile.budgetLeft() != null && (profile.budgetLeft() < -100 || profile.budgetLeft() > 100))
+                || (profile.favorite() != null && !LedgerService.LEDGER_CATEGORIES.contains(profile.favorite()))
                 || (category != null && !LedgerService.LEDGER_CATEGORIES.contains(category))
                 || (query != null && (query.length() > 50 || key.isEmpty())))
-            throw new ApiException(400, "조회 조건(통화·위치·반경·카테고리·검색어·정렬)을 확인해 주세요.");
+            throw new ApiException(400, "조회 조건(통화·위치·반경·카테고리·검색어·정렬·예산)을 확인해 주세요.");
         double dLat = meters / 111_320.0, dLng = meters / (111_320.0 * Math.cos(Math.toRadians(latitude)));
         Map<String, ReceiptItem> latest = new HashMap<>();
         Map<String, Integer> counts = new HashMap<>();
@@ -49,13 +52,18 @@ public class PriceService {
             latest.merge(group, i, (a, b) -> newer(b, a) ? b : a);
             counts.merge(group, 1, Integer::sum);
         }
-        return latest.entrySet().stream().map(e -> {
+        List<PriceRecord> grouped = latest.entrySet().stream().map(e -> {
             ReceiptItem i = e.getValue();
             Receipt r = i.receipt();
             return new PriceRecord(String.valueOf(i.id()), r.storeName(), r.storeNameKo(), r.storeAddress(), r.latitude(), r.longitude(),
                     i.nameKo() == null ? i.rawName() : i.nameKo(), r.currency(), r.purchasedDate().toString(), i.unitMinor(),
-                    r.ledgerCategory(), counts.get(e.getKey()), distance(latitude, longitude, r));
-        }).sorted(ORDER.get(order).thenComparingLong(PriceRecord::distance).thenComparing(PriceRecord::id)).limit(200).toList();
+                    r.ledgerCategory(), counts.get(e.getKey()), distance(latitude, longitude, r), null, false);
+        }).toList();
+        if (RECOMMENDED.equals(order))
+            return PriceRecommender.score(grouped, profile, meters).stream().limit(200)
+                    .map(s -> s.record().withReason(s.reason(), false)).toList();
+        return grouped.stream().sorted(ORDER.get(order).thenComparingLong(PriceRecord::distance).thenComparing(PriceRecord::id))
+                .limit(200).toList();
     }
     // 상품명(원문·한국어)과 매장명(원문·한국어) 중 하나라도 검색어를 포함하면 찾습니다. 띄어쓰기·대소문자는 무시합니다.
     private static boolean matches(ReceiptItem i, String query, String key) {

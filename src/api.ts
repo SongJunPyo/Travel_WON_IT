@@ -59,6 +59,9 @@ export async function fetchPrices(params: {
   category?: string;
   q?: string;
   sort?: string;
+  // 추천순 개인화: 남은 예산 비율(%)과 가장 많이 쓴 카테고리
+  budgetLeft?: number | null;
+  favorite?: string | null;
 }): Promise<Price[]> {
   const query = new URLSearchParams({
     currency: params.currency,
@@ -68,6 +71,9 @@ export async function fetchPrices(params: {
   if (params.category) query.set("category", params.category);
   if (params.q) query.set("q", params.q);
   if (params.sort) query.set("sort", params.sort);
+  if (params.budgetLeft != null)
+    query.set("budgetLeft", String(params.budgetLeft));
+  if (params.favorite) query.set("favorite", params.favorite);
   return (await request(`/prices?${query}`)).records;
 }
 /** 적용 환율 칸에 채울 참고 환율(1 외화당 원화)과 고시일을 받습니다. */

@@ -16,6 +16,7 @@ import {
   fingerprint,
   validDate,
   spendingInsight,
+  recommendProfile,
 } from "../src/domain.mjs";
 
 const receipt = (overrides = {}) => ({
@@ -216,4 +217,21 @@ test("시연용 매장 좌표는 같은 매장이면 같고, 신주쿠역 300m~1
     const d = distanceMeters(DEMO_LOCATION, demoStoreLocation(name));
     assert.ok(d >= 290 && d <= 1510, `${name}: ${d}m`);
   }
+});
+test("추천순 개인화 요약은 남은 예산 비율과 가장 많이 쓴 카테고리를 돌려준다", () => {
+  const state = createDemo();
+  const sum = summarize(state.receipts, state.trip.budget);
+  assert.deepEqual(recommendProfile(sum, state.trip.budget), {
+    budgetLeft: 30,
+    favorite: "숙박",
+  });
+  // 예산을 크게 넘으면 -100%로 자르고, 기록이 없으면 카테고리는 null입니다.
+  assert.equal(
+    recommendProfile(summarize(state.receipts, 100000), 100000).budgetLeft,
+    -100,
+  );
+  assert.deepEqual(recommendProfile(summarize([], 1000000), 1000000), {
+    budgetLeft: 100,
+    favorite: null,
+  });
 });

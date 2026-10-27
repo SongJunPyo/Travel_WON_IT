@@ -59,4 +59,7 @@ export type Price = {
   category: string | null;
   count: number;
   distance: number;
+  // 추천순일 때만: 추천 이유와, 그 순서·이유를 AI가 정했는지
+  reason?: string | null;
+  ai?: boolean;
 };
