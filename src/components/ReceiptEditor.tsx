@@ -1,30 +1,43 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   Image,
-  Switch,
   Platform,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import {
   CATEGORIES,
   CURRENCIES,
   parseMoney,
   minorText,
   money,
+  rateUnits,
   validateReceipt,
   toWon,
   won,
 } from "../domain.mjs";
-import { request } from "../api";
+import { fetchExchangeRate, recognizeReceipt } from "../api";
 import { Sheet, Button, Field, Label, Chip, Icon, colors } from "./ui";
 import type { Coordinate, Receipt, TravelState } from "../types";
 
-type ItemDraft = { name: string; quantity: string; price: string };
+type ItemDraft = {
+  name: string;
+  nameKo: string;
+  quantity: string;
+  price: string;
+};
+// 분석을 기다리는 동안 순서대로 보여 줄 안내 문구
+const ANALYZING_STEPS = [
+  "매장명과 구매일을 찾고 있어요",
+  "상품과 가격을 읽고 있어요",
+  "상품명을 한국어로 옮기고 있어요",
+  "금액 합계를 맞춰 보고 있어요",
+];
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
@@ -48,31 +61,55 @@ export function ReceiptEditor({
     [date, setDate] = useState(initial?.date || today()),
     [category, setCategory] = useState(initial?.category || "음식");
   const [currency, setCurrency] = useState(initial?.currency || trip.currency),
-    [rate, setRate] = useState(String(initial?.rate || trip.rate));
+    [rate, setRate] = useState(String(initial?.rate || trip.rate)),
+    [rateNote, setRateNote] = useState<{ text: string; failed: boolean } | null>(
+      null,
+    ),
+    [rateLoading, setRateLoading] = useState(false);
+  // 환율 요청 번호. 그사이 통화를 바꾸거나 직접 입력하면 번호가 바뀌어 늦게 온 응답을 버립니다.
+  const rateRequest = useRef(0);
+  // 오늘 환율을 못 불러올 때 쓰는 값: 여행 통화는 여행 설정의 환율, 원화는 1
+  const fallbackRate = (c: string) =>
+    c === trip.currency ? String(trip.rate) : c === "KRW" ? "1" : "";
   const [items, setItems] = useState<ItemDraft[]>(
     initial?.items.map((i) => ({
       name: i.name,
+      nameKo: i.nameKo || "",
       quantity: String(i.quantity),
       price: minorText(i.unitMinor, initial.currency),
-    })) || [{ name: "", quantity: "1", price: "" }],
+    })) || [{ name: "", nameKo: "", quantity: "1", price: "" }],
   );
   const [total, setTotal] = useState(
     initial ? minorText(initial.totalMinor, initial.currency) : "",
   );
-  const [share, setShare] = useState(initial?.shareConsent || false),
-    [location, setLocation] = useState<Coordinate | null>(
+  // 매장 좌표는 서버가 매장 주소로 찾습니다. 예전에 확인한 위치는 수정할 때 그대로 유지해요.
+  const [location, setLocation] = useState<Coordinate | null>(
       initial?.location || null,
     ),
     [address, setAddress] = useState(initial?.address || "");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [locating, setLocating] = useState(false),
+    [analyzing, setAnalyzing] = useState(false),
+    [step, setStep] = useState(0),
     [image, setImage] = useState<string | null>(null),
     [demo, setDemo] = useState(initial?.demo || false),
     [deleteConfirm, setDeleteConfirm] = useState(false),
     [source, setSource] = useState(
       initial ? "등록 내역을 수정할 수 있어요." : "",
     );
+  useEffect(() => {
+    if (!analyzing) return;
+    setStep(0);
+    const timer = setInterval(
+      () => setStep((n) => Math.min(n + 1, ANALYZING_STEPS.length - 1)),
+      3500,
+    );
+    return () => clearInterval(timer);
+  }, [analyzing]);
+  // 새 영수증은 오늘 환율을 기본값으로 채웁니다. 저장된 영수증은 그때 쓴 환율을 그대로 둡니다.
+  useEffect(() => {
+    if (!initial) void loadRate(currency);
+  }, []);
   function updateItem(index: number, key: keyof ItemDraft, value: string) {
     setItems((prev) =>
       prev.map((i, n) => (n === index ? { ...i, [key]: value } : i)),
@@ -88,16 +125,19 @@ export function ReceiptEditor({
     setItems(
       data.items.map((i: any) => ({
         name: i.name,
+        nameKo: i.nameKo || "",
         quantity: String(i.quantity),
         price: minorText(i.unitMinor, data.currency),
       })),
     );
     setTotal(minorText(data.totalMinor, data.currency));
     setDemo(isDemo);
-    setShare(false);
     setLocation(null);
-    setAddress("");
-    setRate(data.currency === trip.currency ? String(trip.rate) : "");
+    // 영수증에 찍힌 매장 주소를 그대로 채웁니다. 저장하면 DB의 가게(stores.address)에 들어가요.
+    setAddress(data.address || "");
+    const nextCurrency = data.currency || trip.currency;
+    setRate(fallbackRate(nextCurrency));
+    void loadRate(nextCurrency);
     setSource(
       isDemo
         ? "시연 예시예요. 실제 사진의 인식 결과가 아니에요."
@@ -131,8 +171,8 @@ export function ReceiptEditor({
         throw new Error(
           "사진을 읽지 못했어요. JPG 또는 PNG 사진을 선택해 주세요.",
         );
-      if (asset.base64.length > 8_000_000)
-        throw new Error("사진이 너무 커요. 6MB 이하의 사진을 선택해 주세요.");
+      if (asset.base64.length > 13_900_000)
+        throw new Error("사진이 너무 커요. 10MB 이하의 사진을 선택해 주세요.");
       setImage(asset.uri);
       // 네이티브 picker는 원본이 HEIC여도 base64를 JPEG로 반환할 수 있어요.
       const mime = asset.base64.startsWith("/9j/")
@@ -142,63 +182,69 @@ export function ReceiptEditor({
           : asset.base64.startsWith("UklGR")
             ? "image/webp"
             : asset.mimeType;
-      const resultData = await request("/ocr", {
-        method: "POST",
-        body: JSON.stringify({
-          image: `data:${mime || "image/jpeg"};base64,${asset.base64}`,
-        }),
+      setAnalyzing(true);
+      const receipt = await recognizeReceipt({
+        uri: asset.uri,
+        base64: asset.base64,
+        mimeType: mime || "image/jpeg",
       });
-      applyData(resultData.receipt, false);
+      applyData(receipt, false);
     } catch (e) {
+      // Expo fetch는 시간 초과·연결 끊김을 모두 "fetch failed: ..."로 던지므로 원래 메시지를 함께 보여 줍니다.
+      console.warn("영수증 분석 실패", e);
       setError(
         e instanceof Error
           ? e.message.includes("fetch") || e.message.includes("Network")
-            ? "분석 서버에 연결하지 못했어요. 서버 실행 상태를 확인하거나 직접 입력해 주세요."
+            ? `분석 서버에 연결하지 못했어요. 서버 실행 상태를 확인하거나 직접 입력해 주세요. (${e.message})`
             : e.message
           : "사진 분석에 실패했어요. 직접 입력할 수 있어요.",
       );
     } finally {
+      setAnalyzing(false);
       setBusy(false);
     }
   }
-  async function storeLocation() {
-    setLocating(true);
-    setError("");
+  // 오늘 환율(한국수출입은행 매매기준율)을 적용 환율의 기본값으로 채웁니다. 값은 사용자가 고칠 수 있어요.
+  async function loadRate(target: string) {
+    const request = ++rateRequest.current;
+    if (target === "KRW") {
+      setRateLoading(false);
+      setRateNote(null);
+      return;
+    }
+    setRateLoading(true);
+    setRateNote({ text: "오늘 환율을 불러오고 있어요.", failed: false });
     try {
-      const result = await Location.requestForegroundPermissionsAsync();
-      if (result.status !== "granted")
-        throw new Error(
-          "위치 권한을 허용해 주세요. 가격 공유 없이도 영수증은 저장할 수 있어요.",
-        );
-      const point = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error("위치 확인 시간이 초과됐어요. 다시 시도해 주세요."),
-              ),
-            15000,
-          ),
-        ),
-      ]);
-      setLocation({
-        latitude: point.coords.latitude,
-        longitude: point.coords.longitude,
+      const result = await fetchExchangeRate(target);
+      if (request !== rateRequest.current) return;
+      setRate(String(result.rate));
+      setRateNote({
+        text: `${result.source} · ${result.date} 기준 오늘 환율이에요. 카드 결제 환율과 다르면 직접 고쳐 주세요.`,
+        failed: false,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "위치 확인에 실패했어요.");
+      if (request !== rateRequest.current) return;
+      setRateNote({
+        text:
+          e instanceof Error && !e.message.includes("fetch")
+            ? e.message
+            : "환율 서버에 연결하지 못했어요. 적용 환율을 직접 입력해 주세요.",
+        failed: true,
+      });
     } finally {
-      setLocating(false);
+      if (request === rateRequest.current) setRateLoading(false);
     }
   }
   function save() {
     setError("");
     try {
-      if (!/^\d+$/.test(rate))
-        throw new Error("적용 환율을 1 이상 정수로 입력해 주세요.");
+      if (rateUnits(rate) === null)
+        throw new Error(
+          "적용 환율을 0보다 크게, 소수 넷째 자리까지 입력해 주세요.",
+        );
       const parsedItems = items.map((i) => ({
         name: i.name.trim(),
+        ...(i.nameKo.trim() ? { nameKo: i.nameKo.trim() } : {}),
         quantity: /^\d+$/.test(i.quantity) ? Number(i.quantity) : 0,
         unitMinor: parseMoney(i.price, currency),
       }));
@@ -213,17 +259,13 @@ export function ReceiptEditor({
         rate: Number(rate),
         items: parsedItems,
         totalMinor: parseMoney(total, currency),
-        shareConsent: share && !demo,
+        shareConsent: !demo,
         demo,
         address: address.trim(),
         location,
         recordedAt: new Date().toISOString(),
       };
       validateReceipt(receipt);
-      if (share && !demo && (!location || !address.trim()))
-        throw new Error(
-          "가격을 공유하려면 매장 주소와 매장 위치를 확인해 주세요.",
-        );
       onSave(receipt);
     } catch (e) {
       setError(e instanceof Error ? e.message : "입력한 값을 확인해 주세요.");
@@ -252,6 +294,32 @@ export function ReceiptEditor({
       }
       onClose={onClose}
     >
+      <Modal visible={analyzing} transparent animationType="fade">
+        <View style={s.loadingBackdrop} testID="ocr-loading">
+          <View style={s.loadingCard}>
+            <Image
+              source={require("../../assets/receipt-pudding.png")}
+              resizeMode="contain"
+              style={s.loadingImage}
+              accessibilityIgnoresInvertColors
+            />
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={s.loadingTitle}>AI가 영수증을 읽고 있어요</Text>
+            <Text style={s.loadingStep}>{ANALYZING_STEPS[step]}</Text>
+            <View style={s.loadingDots}>
+              {ANALYZING_STEPS.map((_, n) => (
+                <View
+                  key={n}
+                  style={[s.loadingDot, n <= step && s.loadingDotActive]}
+                />
+              ))}
+            </View>
+            <Text style={s.loadingNote}>
+              보통 10~20초 걸려요.{"\n"}화면을 닫지 말고 잠시만 기다려 주세요.
+            </Text>
+          </View>
+        </View>
+      </Modal>
       {!initial && (
         <View style={s.upload}>
           <View style={s.uploadHeading}>
@@ -297,8 +365,18 @@ export function ReceiptEditor({
                   category: "음식",
                   totalMinor: 600,
                   items: [
-                    { name: "코카콜라 500ml", quantity: 2, unitMinor: 180 },
-                    { name: "에비앙 500ml", quantity: 2, unitMinor: 120 },
+                    {
+                      name: "COCA COLA 50CL",
+                      nameKo: "코카콜라 500ml",
+                      quantity: 2,
+                      unitMinor: 180,
+                    },
+                    {
+                      name: "EVIAN 50CL",
+                      nameKo: "에비앙 500ml",
+                      quantity: 2,
+                      unitMinor: 120,
+                    },
                   ],
                 },
                 true,
@@ -322,6 +400,13 @@ export function ReceiptEditor({
         onChangeText={setStore}
         placeholder="예: 마르셰 A"
         testID="receipt-store"
+      />
+      <Field
+        label="매장 주소"
+        testID="store-address"
+        value={address}
+        onChangeText={setAddress}
+        placeholder="영수증의 매장 주소 (AI가 읽으면 자동 입력)"
       />
       <Field
         label="구매일"
@@ -350,24 +435,40 @@ export function ReceiptEditor({
             active={currency === c}
             onPress={() => {
               setCurrency(c);
-              setRate(
-                c === trip.currency
-                  ? String(trip.rate)
-                  : c === "KRW"
-                    ? "1"
-                    : "",
-              );
+              setRate(fallbackRate(c));
+              void loadRate(c);
             }}
           />
         ))}
       </View>
       <Field
-        label={`적용 환율 · 1 ${currency}당 원화 (직접 확인)`}
+        label={`적용 환율 · 1 ${currency}당 원화 (수정 가능)`}
         value={rate}
-        onChangeText={setRate}
-        keyboardType="number-pad"
-        placeholder="예: 1600"
+        onChangeText={(value) => {
+          // 직접 입력한 값이 우선입니다. 불러오던 오늘 환율은 버립니다.
+          rateRequest.current++;
+          setRateLoading(false);
+          setRate(value);
+          setRateNote({ text: "직접 입력한 환율로 계산해요.", failed: false });
+        }}
+        keyboardType="decimal-pad"
+        placeholder={currency === "JPY" ? "예: 8.3983" : "예: 1477.87"}
+        testID="receipt-rate"
       />
+      {currency !== "KRW" && (
+        <View style={s.rateRow}>
+          <Text
+            style={[s.rateNote, rateNote?.failed && s.rateNoteFailed]}
+            testID="rate-note"
+          >
+            {rateNote?.text ||
+              "저장할 때 쓴 적용 환율이에요. 통화를 바꾸면 그 통화의 오늘 환율을 채워요."}
+          </Text>
+          {rateLoading && (
+            <ActivityIndicator size="small" color={colors.primary} />
+          )}
+        </View>
+      )}
       <View style={s.itemsHeading}>
         <Text style={s.itemsTitle}>구매 상품</Text>
         <Text style={s.itemsNote}>가격은 개당 가격이에요</Text>
@@ -390,11 +491,18 @@ export function ReceiptEditor({
             )}
           </View>
           <Field
-            label="상품명 · 용량 포함"
+            label="원어 상품명 · 영수증 그대로"
             value={item.name}
             onChangeText={(v) => updateItem(index, "name", v)}
-            placeholder="예: 코카콜라 500ml"
+            placeholder="예: COCA COLA 50CL"
             testID={`item-name-${index}`}
+          />
+          <Field
+            label="한국어 상품명 · 용량 포함"
+            value={item.nameKo}
+            onChangeText={(v) => updateItem(index, "nameKo", v)}
+            placeholder="예: 코카콜라 500ml"
+            testID={`item-name-ko-${index}`}
           />
           <View style={s.row}>
             <Field
@@ -420,7 +528,10 @@ export function ReceiptEditor({
         icon="plus"
         variant="outline"
         onPress={() =>
-          setItems([...items, { name: "", quantity: "1", price: "" }])
+          setItems([
+            ...items,
+            { name: "", nameKo: "", quantity: "1", price: "" },
+          ])
         }
       />
       <View style={{ marginTop: 20 }}>
@@ -443,58 +554,17 @@ export function ReceiptEditor({
           할인·세금은 상품별 가격에 반영해 합계를 맞춰 주세요.
         </Text>
       </View>
-      <View style={s.consent}>
-        <View style={s.consentTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.consentTitle}>상품 가격을 다른 여행자와 공유</Text>
-            <Text style={s.consentOptional}>
-              선택 사항 · 언제든 변경할 수 있어요
-            </Text>
-          </View>
-          <Switch
-            accessibilityLabel="상품 가격 공유 동의"
-            testID="share-consent"
-            value={share}
-            onValueChange={setShare}
-            disabled={demo}
-            trackColor={{ false: "#DDE6EE", true: "#85BDE4" }}
-            thumbColor={share ? colors.primary : "#fff"}
-          />
-        </View>
+      <View style={s.consent} testID="share-notice">
+        <Text style={s.consentTitle}>
+          {demo
+            ? "시연 영수증은 가격 비교에 공유되지 않아요"
+            : "이 영수증은 주변 가격 비교에 공유돼요"}
+        </Text>
         <Text style={s.consentText}>
           {demo
-            ? "시연 영수증은 실제 가격 데이터로 공유되지 않아요."
-            : "동의하면 매장명·주소·위치·상품명·개당 가격·구매일만 공유해요. 사진, 개인 결제정보, 원화 환산액은 공유하지 않아요."}
+            ? "실제 영수증만 다른 여행자의 가격 비교 데이터가 돼요."
+            : "매장명·주소·상품명·개당 가격·구매일만 공유해요. 지도 위치는 매장 주소로 자동으로 찾아요. 사진, 개인 결제정보, 원화 환산액은 공유하지 않아요."}
         </Text>
-        {share && !demo && (
-          <View style={{ marginTop: 18 }}>
-            <Field
-              label="매장 주소"
-              testID="store-address"
-              value={address}
-              onChangeText={setAddress}
-              placeholder="영수증의 매장 주소를 입력해 주세요"
-            />
-            <Button
-              title={
-                location
-                  ? "매장 위치 다시 확인"
-                  : "매장에 있다면 현재 위치 사용"
-              }
-              icon="location"
-              variant="outline"
-              loading={locating}
-              onPress={() => {
-                void storeLocation();
-              }}
-            />
-            <Text style={s.totalNote}>
-              {location
-                ? `확인된 위치: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
-                : "매장에 있을 때만 위치를 등록해 주세요. 위치가 없으면 공유할 수 없어요."}
-            </Text>
-          </View>
-        )}
       </View>
       {error ? (
         <Text accessibilityRole="alert" testID="receipt-error" style={s.error}>
@@ -505,7 +575,7 @@ export function ReceiptEditor({
         title={initial ? "변경사항 저장" : "가계부에 저장하기"}
         icon="check"
         onPress={save}
-        disabled={busy || locating}
+        disabled={busy}
         testID="save-receipt"
       />
       {initial && (
@@ -530,6 +600,46 @@ export function ReceiptEditor({
   );
 }
 const s = StyleSheet.create({
+  loadingBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  loadingCard: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    gap: 10,
+  },
+  loadingImage: { width: 120, height: 120, marginBottom: 4 },
+  loadingTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  loadingStep: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  loadingDots: { flexDirection: "row", gap: 6, marginTop: 4 },
+  loadingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#D8E3EC",
+  },
+  loadingDotActive: { backgroundColor: colors.primary },
+  loadingNote: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 16,
+    marginTop: 4,
+  },
   row: { flexDirection: "row", gap: 12 },
   upload: {
     backgroundColor: "#F0F6FC",
@@ -563,6 +673,15 @@ const s = StyleSheet.create({
     borderRadius: 10,
   },
   chips: { flexDirection: "row", gap: 7, flexWrap: "wrap", marginBottom: 20 },
+  rateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: -6,
+    marginBottom: 20,
+  },
+  rateNote: { flex: 1, fontSize: 10, lineHeight: 16, color: colors.muted },
+  rateNoteFailed: { color: "#C05A57" },
   itemsHeading: {
     flexDirection: "row",
     alignItems: "center",
@@ -602,9 +721,7 @@ const s = StyleSheet.create({
     padding: 17,
     marginVertical: 22,
   },
-  consentTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   consentTitle: { color: colors.ink, fontSize: 12, fontWeight: "700" },
-  consentOptional: { color: colors.muted, fontSize: 9, marginTop: 6 },
   consentText: {
     color: "#8096A9",
     fontSize: 10,

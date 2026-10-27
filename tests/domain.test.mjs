@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createDemo,
   parseMoney,
+  rateUnits,
   toWon,
   validateReceipt,
   normalizeProduct,
@@ -52,6 +53,36 @@ test("원화 환산은 정수 연산 후 원 단위 사사오입한다", () => {
   assert.throws(() => toWon(10, "EUR", 0));
   assert.throws(() => toWon(10.1, "EUR", 1600));
 });
+test("소수 환율은 반올림 없이 끝까지 계산한 뒤 원 단위로 사사오입한다", () => {
+  // 1000엔 × 8.3983 = 8398.3원 → 8398원 (정수 환율 8이면 8000원)
+  assert.equal(toWon(1000, "JPY", 8.3983), 8398);
+  assert.equal(toWon(1000, "JPY", "8.3983"), 8398);
+  // 3.60유로 × 1477.87 = 5320.332원 → 5320원
+  assert.equal(toWon(360, "EUR", 1477.87), 5320);
+  // 0.5원 경계는 올림: 1엔 × 8.5 = 8.5원 → 9원
+  assert.equal(toWon(1, "JPY", 8.5), 9);
+  assert.equal(toWon(3, "KRW", 1), 3);
+});
+test("적용 환율은 0 초과 1,000,000 이하, 소수 4자리까지만 받는다", () => {
+  assert.equal(rateUnits("8.3983"), 83983n);
+  assert.equal(rateUnits(1600), 16_000_000n);
+  assert.equal(rateUnits("0.0001"), 1n);
+  assert.equal(rateUnits("1000000"), 10_000_000_000n);
+  for (const value of [
+    "0",
+    "0.00001",
+    "8.39831",
+    "-1",
+    "1,477.87",
+    "1e3",
+    "",
+    "1000000.0001",
+    null,
+    Number.NaN,
+  ])
+    assert.equal(rateUnits(value), null, String(value));
+  assert.throws(() => toWon(100, "JPY", "8.39831"), /환율/);
+});
 test("시연 영수증에서 예산, 소비 비중, 초과 금액을 계산한다", () => {
   const state = createDemo();
   const sum = summarize(state.receipts, state.trip.budget);
@@ -88,6 +119,9 @@ test("유효한 상품별 내역을 등록하고 합계 불일치·잘못된 수
     /구매일/,
   );
   assert.throws(() => validateReceipt(receipt({ items: [] })), /1개/);
+  // 기존 정수 환율과 새 소수 환율을 모두 받고, 소수 5자리 환율은 거부한다.
+  assert.equal(validateReceipt(receipt({ rate: 1477.87 })).rate, 1477.87);
+  assert.throws(() => validateReceipt(receipt({ rate: 1477.87123 })), /환율/);
 });
 test("매장명·날짜·통화·금액을 기준으로 중복을 판별한다", () => {
   const a = receipt({ store: "  MARKET A  " }),
@@ -188,7 +222,8 @@ test("명시적 공유 동의·주소·좌표가 있을 때만 공개 상품을 
   });
   assert.equal(publicPrices(r).length, 3);
   assert.deepEqual(publicPrices({ ...r, demo: true }), []);
-  assert.deepEqual(publicPrices({ ...r, shareConsent: false }), []);
+  // 동의 절차 없이 시연이 아닌 영수증은 모두 공유합니다.
+  assert.equal(publicPrices({ ...r, shareConsent: false }).length, 3);
   assert.deepEqual(publicPrices({ ...r, location: null }), []);
   assert.deepEqual(publicPrices({ ...r, address: "" }), []);
 });
@@ -272,7 +307,12 @@ test("카테고리 조회는 다른 통화와 반경 3km 밖의 기록을 제외
     [
       purchase(),
       purchase({ id: "jpy", store: "엔화 매장", currency: "JPY" }),
-      purchase({ id: "far", store: "먼 매장", latitude: 37.5665, longitude: 126.978 }),
+      purchase({
+        id: "far",
+        store: "먼 매장",
+        latitude: 37.5665,
+        longitude: 126.978,
+      }),
     ],
     "식당",
     DEMO_LOCATION,
@@ -293,5 +333,32 @@ test("시연 거래 기록은 모든 카테고리를 포함하고 시연 위치 
     DEMO_PURCHASES.every(
       (r) => r.demo === true && distanceMeters(DEMO_LOCATION, r) <= 3000,
     ),
+  );
+});
+test("원어와 한국어 상품명이 있으면 가격 비교는 한국어로 묶고 원어를 함께 남긴다", () => {
+  const r = receipt({
+    shareConsent: true,
+    location: DEMO_LOCATION,
+    address: "주소",
+    totalMinor: 360,
+    items: [
+      {
+        name: "COCA COLA 50CL",
+        nameKo: "코카콜라 500ml",
+        quantity: 2,
+        unitMinor: 180,
+      },
+    ],
+  });
+  validateReceipt(r);
+  const [row] = publicPrices(r);
+  assert.equal(row.product, "코카콜라 500ml");
+  assert.equal(row.original, "COCA COLA 50CL");
+  assert.equal(row.normalized, "코카콜라500ml");
+  assert.throws(() =>
+    validateReceipt({
+      ...r,
+      items: [{ ...r.items[0], nameKo: "가".repeat(161) }],
+    }),
   );
 });

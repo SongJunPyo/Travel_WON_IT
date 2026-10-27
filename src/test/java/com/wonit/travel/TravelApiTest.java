@@ -1,10 +1,14 @@
 package com.wonit.travel;
 
-import com.wonit.travel.ocr.ReceiptAiGateway;
-import com.wonit.travel.ocr.ReceiptDraft;
+import com.wonit.travel.api.DomainException;
+import com.wonit.travel.api.ErrorCode;
+import com.wonit.travel.ocr.ReceiptReader;
+import com.wonit.travel.ocr.RecognizedReceipt;
+import com.wonit.travel.rate.RateSource;
 import com.wonit.travel.ledger.DeviceRepository;
 import com.wonit.travel.ledger.ReceiptRepository;
 import com.wonit.travel.ledger.TripRepository;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,16 +20,19 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -38,13 +45,18 @@ class TravelApiTest {
     DeviceRepository devices;
     TripRepository trips;
     ReceiptRepository receipts;
-    ReceiptAiGateway gateway = mock(ReceiptAiGateway.class);
+    // Claude 영수증 리더와 한국수출입은행 API 대신 쓰는 가짜 구현. 테스트에서는 외부를 부르지 않습니다.
+    ReceiptReader reader = mock(ReceiptReader.class);
+    RateSource rateSource = mock(RateSource.class);
     ConfigurableApplicationContext context;
     private final String tokenA = "Bearer " + "a".repeat(64), tokenB = "Bearer " + "b".repeat(64);
     @BeforeAll void start() {
         context = new SpringApplicationBuilder(TravelWonhaeApplication.class)
-                .initializers(ctx -> ((GenericApplicationContext)ctx).registerBean("testReceiptGateway", ReceiptAiGateway.class, () -> gateway, bd -> bd.setPrimary(true)))
-                .run("--server.port=0", "--spring.datasource.url=jdbc:h2:mem:wonhae-tests", "--spring.jpa.hibernate.ddl-auto=create-drop", "--app.openai-api-key=test-only");
+                .initializers(ctx -> {
+                    ((GenericApplicationContext) ctx).registerBean("testReceiptReader", ReceiptReader.class, () -> reader, bd -> bd.setPrimary(true));
+                    ((GenericApplicationContext) ctx).registerBean("testRateSource", RateSource.class, () -> rateSource, bd -> bd.setPrimary(true));
+                })
+                .run("--server.port=0", "--spring.datasource.url=jdbc:h2:mem:wonhae-tests", "--spring.jpa.hibernate.ddl-auto=create-drop");
         mvc = MockMvcBuilders.webAppContextSetup((WebApplicationContext) context)
                 .addFilters(context.getBean(com.wonit.travel.api.RequestLimitFilter.class)).build();
         mapper = context.getBean(JsonMapper.class);
@@ -53,7 +65,7 @@ class TravelApiTest {
         receipts = context.getBean(ReceiptRepository.class);
     }
     @AfterAll void stop() { if (context != null) context.close(); }
-    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(gateway); }
+    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(reader, rateSource); }
     // 도쿄 신주쿠역 근처 시연 위치입니다.
     private static final double LAT = 35.6896, LNG = 139.7006;
     private Map<String, Object> receipt(String store, double latitude, double longitude, String date, long unitMinor, boolean share) {
@@ -180,18 +192,52 @@ class TravelApiTest {
         mvc.perform(options("/receipts/1").header("Origin", "http://localhost:8081").header("Access-Control-Request-Method", "DELETE"))
                 .andExpect(status().isOk());
     }
-    @Test void OCR은_상품별_수량과_단가를_반환한다() throws Exception {
-        when(gateway.extract(anyString())).thenReturn(new ReceiptDraft("테스트 매장", "2026-10-27", "EUR", "음식", 360, List.of(new ReceiptDraft.Item("코카콜라 500ml", 2, 180))));
-        mvc.perform(post("/ocr").contentType("application/json").content("{\"image\":\"data:image/png;base64,aGVsbG8=\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.receipt.items[0].unitMinor").value(180)).andExpect(jsonPath("$.receipt.items[0].quantity").value(2));
+    @Test void 환율_API는_1외화당_원화와_기준일_출처를_돌려준다() throws Exception {
+        when(rateSource.fetch(any())).thenReturn("[{\"result\":1,\"cur_unit\":\"JPY(100)\",\"deal_bas_r\":\"839.83\"}]");
+        mvc.perform(get("/api/exchange-rates/JPY")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.currency").value("JPY"))
+                .andExpect(jsonPath("$.rate").value(8.3983))
+                .andExpect(jsonPath("$.date").isString())
+                .andExpect(jsonPath("$.source").value("한국수출입은행 매매기준율"));
+        mvc.perform(get("/api/exchange-rates/XXX")).andExpect(status().isBadRequest());
     }
-    @Test void 읽지못한_영수증은_성공으로_반환하지_않는다() throws Exception {
-        when(gateway.extract(anyString())).thenReturn(new ReceiptDraft("", "", "EUR", "기타", 0, List.of()));
-        mvc.perform(post("/ocr").contentType("application/json").content("{\"image\":\"data:image/png;base64,aGVsbG8=\"}"))
-                .andExpect(status().isUnprocessableEntity());
+    @Test void 환율을_불러오지_못하면_503_RATE_UNAVAILABLE이다() throws Exception {
+        when(rateSource.fetch(any())).thenThrow(new DomainException(ErrorCode.RATE_UNAVAILABLE));
+        // 다른 테스트가 오늘 응답을 캐시했어도 THB는 그 응답에 없어 같은 오류가 됩니다.
+        mvc.perform(get("/api/exchange-rates/THB")).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errors[0].code").value("RATE_UNAVAILABLE"));
+    }
+
+    private static MockMultipartFile png() {
+        return new MockMultipartFile("file", "receipt.png", "image/png", new byte[] {1, 2, 3});
+    }
+    @Test void OCR은_상품별_수량과_단가를_최소단위로_돌려준다() throws Exception {
+        when(reader.read(any(), eq("image/png"))).thenReturn(new RecognizedReceipt("테스트 매장", "99 Rue de Rivoli\n75001 Paris", "2026-10-27", "eur", "음식",
+                "3.60", List.of(new RecognizedReceipt.Item("COCA COLA 50CL", "코카콜라 500ml", 2, "1.80"))));
+        mvc.perform(multipart("/api/receipts/ocr").file(png())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.receipt.currency").value("EUR"))
+                .andExpect(jsonPath("$.receipt.address").value("99 Rue de Rivoli, 75001 Paris"))
+                .andExpect(jsonPath("$.receipt.totalMinor").value(360))
+                .andExpect(jsonPath("$.receipt.items[0].name").value("COCA COLA 50CL"))
+                .andExpect(jsonPath("$.receipt.items[0].nameKo").value("코카콜라 500ml"))
+                .andExpect(jsonPath("$.receipt.items[0].unitMinor").value(180))
+                .andExpect(jsonPath("$.receipt.items[0].quantity").value(2));
+    }
+    @Test void 상품을_읽지못한_영수증은_502_OCR_FAILED다() throws Exception {
+        when(reader.read(any(), any())).thenReturn(new RecognizedReceipt(null, null, null, "EUR", null, "3.60", new ArrayList<>()));
+        mvc.perform(multipart("/api/receipts/ocr").file(png())).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.errors[0].code").value("OCR_FAILED"));
+    }
+    @Test void 키가_없으면_503_OCR_UNAVAILABLE다() throws Exception {
+        when(reader.read(any(), any())).thenThrow(new DomainException(ErrorCode.OCR_UNAVAILABLE));
+        mvc.perform(multipart("/api/receipts/ocr").file(png())).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errors[0].code").value("OCR_UNAVAILABLE"));
     }
     @Test void 지원하지_않는_사진은_외부에_보내지_않는다() throws Exception {
-        mvc.perform(post("/ocr").contentType("application/json").content("{\"image\":\"test\"}"))
-                .andExpect(status().isBadRequest());
+        var gif = new MockMultipartFile("file", "receipt.gif", "image/gif", new byte[] {1, 2, 3});
+        mvc.perform(multipart("/api/receipts/ocr").file(gif)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("file"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_FILE"));
+        verifyNoInteractions(reader);
     }
 }

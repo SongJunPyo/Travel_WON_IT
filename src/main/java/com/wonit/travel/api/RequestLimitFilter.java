@@ -15,7 +15,7 @@ public class RequestLimitFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("X-Content-Type-Options", "nosniff");
-        if (request.getContentLengthLong() > 8_100_000) {
+        if (request.getContentLengthLong() > 11_000_000) {
             response.setStatus(413);
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write("{\"error\":\"사진 또는 요청 데이터가 너무 커요.\"}");

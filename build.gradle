@@ -15,8 +15,9 @@ dependencyManagement { imports { mavenBom 'org.springframework.ai:spring-ai-bom:
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    // 모델의 JSON Schema와 응답 변환에 Spring AI를 사용합니다.
-    implementation 'org.springframework.ai:spring-ai-model'
+    // 영수증 사진 인식: Spring AI ChatClient + Claude (98_HACKATHON/my-hackathon과 같은 구성)
+    implementation 'org.springframework.ai:spring-ai-starter-model-anthropic'
+    // 기본 실행은 H2 파일 DB, 테스트는 H2 메모리 DB(MySQL 모드)입니다.
     runtimeOnly 'com.h2database:h2'
     // mysql 프로필에서 travel_won(MySQL 8.0)에 연결합니다. 버전은 Spring Boot가 관리합니다.
     runtimeOnly 'com.mysql:mysql-connector-j'
