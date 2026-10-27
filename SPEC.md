@@ -20,6 +20,7 @@
 | Spring Boot   | 4.1.1                   | 지정 참고 저장소 build.gradle과 동일                                                         |
 | Spring AI     | 2.0.1                   | 참고 저장소 BOM과 동일, BeanOutputConverter로 상품별 JSON Schema·응답 변환                   |
 | Hibernate·H2  | 7.4.5.Final·2.4.240     | Boot 4.1.1 의존성 관리, JPA 저장 계층·파일 H2 사용                                           |
+| MySQL Connector/J | 9.7.0               | Boot 4.1.1 의존성 관리. `mysql` 프로필로 MySQL 8.0.38(`travel_won`) 연결, 계정의 `mysql_native_password` 인증 지원 확인 |
 | Gradle        | 9.7.1                   | 참고 저장소 Gradle Wrapper와 동일                                                            |
 | JUnit Jupiter | 5.14.2                  | AGENTS.md의 JUnit 5 기준, Spring 7의 JUnit 6 전용 Extension 대신 컨텍스트 생명주기 직접 관리 |
 | Expo          | 58.0.19                 | 설치 시 안정 버전, Expo Doctor 호환 검사 통과                                                |
@@ -31,7 +32,7 @@
 
 책임은 화면·서버 요청·도메인 계산·REST 컨트롤러·OCR 서비스/공급자·가격 서비스·JPA 저장소로 나눕니다. 앱은 두 탭만 제공하고 여행 설정은 가계부의 시트로 엽니다.
 
-가계부는 AsyncStorage에, 동의한 공개 상품 가격은 H2 파일 DB에 저장합니다. 기기 토큰은 서버에서 SHA-256 해시로만 보관합니다. 동기화는 기기별 전체 공개 스냅샷을 트랜잭션으로 교체하여 삭제·철회·재시도를 처리합니다. 공개 API는 DTO 허용 필드만 반환합니다.
+가계부는 AsyncStorage에, 동의한 공개 상품 가격은 서버 DB에 저장합니다. 기본은 H2 파일 DB이고, `mysql` 프로필은 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`로 MySQL(`travel_won`)에 연결합니다. 참고 저장소와 같이 프로필을 나누되, DB 설계 전까지는 테이블 자동 생성을 끕니다(`ddl-auto=none`). 기기 토큰은 서버에서 SHA-256 해시로만 보관합니다. 동기화는 기기별 전체 공개 스냅샷을 트랜잭션으로 교체하여 삭제·철회·재시도를 처리합니다. 공개 API는 DTO 허용 필드만 반환합니다.
 
 통화는 EUR·USD·THB·JPY·KRW를 지원합니다. 금액은 최소 통화 단위 정수로 저장하며 Java는 long, 앱은 안전한 정수 범위와 BigInt를 사용합니다. 원화 환산은 원 단위 사사오입합니다. 상품 수량은 정수이며 상품 합계와 총액이 일치해야 합니다.
 
@@ -61,5 +62,7 @@
 - [x] PAGE 2 카테고리 둘러보기·정렬 필터 (가상 시연 기록)
 - [x] Mapbox 지도 타일
 - [ ] 거리순 정렬 (현재 위치 연동 후)
-- [ ] 가계부·공유 기록 DB 설계와 연결
+- [x] MySQL 드라이버·`mysql` 프로필 (테이블 자동 생성 끔)
+- [x] DB 설계와 `travel_won` 테이블 생성 ([docs/db-design.md](docs/db-design.md))
+- [ ] 서버·앱을 새 DB 구조로 전환 (가계부 서버 저장, 시연 위치 도쿄, PAGE 2 카테고리 추천, 일본 가데이터)
 - [ ] 상품명 검색(예: 도리토스)을 실제 적재 데이터로 확인

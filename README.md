@@ -48,7 +48,7 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 ## 데이터와 한계
 
 - 가계부와 여행 설정은 기기의 AsyncStorage에 저장합니다. 웹에서는 해당 주소의 브라우저 localStorage를 씁니다.
-- 공유에 동의한 상품 가격은 서버의 H2 파일 DB(`data/prices.mv.db`)에 저장합니다. 기기 토큰은 SHA-256 해시로만 보관하고, 기기별 기록을 통째로 교체해 삭제와 동의 철회를 반영합니다. 앱을 지워도 서버 기록은 지워지지 않으므로, 먼저 공유를 해제해야 합니다.
+- 공유에 동의한 상품 가격은 서버 DB에 저장합니다. 기본은 H2 파일 DB(`data/prices.mv.db`)이고, `npm run server:mysql`로 실행하면 MySQL(`travel_won`)을 씁니다. MySQL에서는 DB 설계를 마칠 때까지 테이블을 자동으로 만들지 않습니다. 기기 토큰은 SHA-256 해시로만 보관하고, 기기별 기록을 통째로 교체해 삭제와 동의 철회를 반영합니다. 앱을 지워도 서버 기록은 지워지지 않으므로, 먼저 공유를 해제해야 합니다.
 - 금액은 최소 통화 단위 정수로 저장합니다(EUR·USD·THB는 센트, JPY·KRW는 엔·원). 원화 환산에는 사용자가 입력한 환율을 쓰며, 실시간 환율이 아닙니다.
 - **시연 데이터**: 처음 실행할 때 보이는 영수증 6건, 평균 소비 비율, 파리의 가상 매장과 가격, 카테고리 둘러보기 기록은 모두 가상입니다. 시연 영수증은 여행 설정에서 지울 수 있습니다.
 - 카테고리 둘러보기는 아직 실제 공유 기록과 연결되지 않았습니다. 공유 기록에 카테고리 정보가 없기 때문이며, 가계부·공유 기록 DB를 설계한 뒤 연결할 예정입니다.
@@ -64,6 +64,7 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 | 웹 화면   | `npm run web`    | [http://localhost:8081](http://localhost:8081)           | 있음     |
 | 휴대폰 앱 | `npm start`      | Expo Go로 QR 코드 스캔                                   | 있음     |
 | API 서버  | `npm run server` | `http://localhost:8787` (상태 확인: `/health`)           | **없음** |
+| API 서버 (MySQL) | `npm run server:mysql` | 위와 같음. DB만 MySQL(`travel_won`)                | **없음** |
 
 > `npm run dev`는 이 프로젝트에 없습니다. 실행하면 `Missing script: "dev"` 오류가 납니다. `npm run dev`는 이전 프로젝트 `my-hackathon`(Vite, 5173 포트)의 명령입니다.
 
@@ -101,6 +102,8 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
    | `EXPO_PUBLIC_API_URL`      | 앱이 호출할 API 주소. 기본값 `http://localhost:8787`, Android 에뮬레이터는 `http://10.0.2.2:8787` | 실기기, 다른 주소       |
    | `EXPO_PUBLIC_MAPBOX_TOKEN` | Mapbox 지도 공개 토큰(`pk.`로 시작). 없으면 OpenStreetMap 지도를 씁니다                          | 선택                    |
    | `ALLOWED_ORIGINS`          | 웹에서 API를 호출할 수 있는 origin(쉼표로 구분)                                                  | 웹을 다른 주소로 열 때 |
+   | `DB_URL`                   | MySQL 주소. 예: `jdbc:mysql://<호스트>:3306/travel_won?serverTimezone=Asia/Seoul&characterEncoding=UTF-8` | `npm run server:mysql` |
+   | `DB_USERNAME`, `DB_PASSWORD` | MySQL 계정과 비밀번호. 팀 안에서 따로 전달받습니다                                              | `npm run server:mysql` |
 
    `EXPO_PUBLIC_`으로 시작하는 값은 앱 번들에 포함되어 누구나 볼 수 있으니 비밀 키를 넣지 않습니다. `EXPO_PUBLIC_` 값을 바꾸면 Expo(`npm run web`·`npm start`)를, 나머지 값을 바꾸면 API 서버를 다시 시작합니다.
 
@@ -127,6 +130,15 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 
    이 서버에는 **화면이 없습니다.** 브라우저로 [http://localhost:8787/health](http://localhost:8787/health)를 열어 `"ok":true`가 보이면 정상입니다. `http://localhost:8787` 자체를 열면 "요청한 주소나 방식을 확인해 주세요"라는 오류가 나오는데, 이것도 정상입니다. 앱 화면은 4단계의 8081 주소에서 봅니다.
 
+   **MySQL(`travel_won`)로 실행하기:** `.env`에 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`를 넣고 아래 명령을 실행합니다. `.env`에 DB 값이 있어도 `npm run server`는 항상 H2를 씁니다.
+
+   ```bash
+   npm run server:mysql                                            # macOS·Linux
+   .\gradlew.bat bootRun --args="--spring.profiles.active=mysql"   # Windows
+   ```
+
+   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만들었습니다. **서버 코드는 아직 새 DB 구조로 바꾸기 전이라, MySQL 모드에서는 가격 공유·조회 요청이 실패합니다.**
+
 6. **휴대폰에서 실행** (선택)
 
    ```bash
@@ -152,6 +164,9 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 | 화면에 "서버에 연결하지 못했어요"                            | API 서버가 꺼져 있거나, 웹을 8081이 아닌 주소로 열었습니다(CORS). 서버를 켜고, 다른 주소라면 `ALLOWED_ORIGINS`에 추가한 뒤 서버를 다시 시작합니다.                           |
 | 사진 분석 시 "AI 분석 키가 설정되지 않았어요"                | `.env`에 `OPENAI_API_KEY`를 넣고 API 서버를 다시 시작합니다.                                                                                                                 |
 | 지도가 Mapbox가 아닌 OpenStreetMap으로 보임                  | `.env`에 `EXPO_PUBLIC_MAPBOX_TOKEN`이 없습니다. 넣은 뒤 Expo를 다시 시작합니다.                                                                                              |
+| `npm run server:mysql` → `Could not resolve placeholder 'DB_URL'` | `.env`에 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD`가 없습니다. 3단계 표를 참고해 넣습니다.                                                                                         |
+| `npm run server:mysql` → `Access denied for user`            | `DB_USERNAME`·`DB_PASSWORD` 값을 확인합니다.                                                                                                                                 |
+| 터미널 `mysql` 명령 → `Authentication plugin 'mysql_native_password' cannot be loaded` | 최신 MySQL 클라이언트에 이 인증 방식이 없습니다. MySQL 8.4 이하 클라이언트나 DBeaver·MySQL Workbench 같은 GUI 도구로 접속합니다. 앱 서버 연결에는 영향이 없습니다. |
 | 휴대폰에서 서버에 연결하지 못함                              | `EXPO_PUBLIC_API_URL`이 `localhost`이면 휴대폰 자기 자신을 가리킵니다. Mac의 LAN 주소로 바꾸고 Expo를 다시 시작합니다.                                                       |
 
 ## iPhone에서 시연하기
@@ -239,6 +254,7 @@ npx expo-doctor
 ## 관련 문서
 
 - [SPEC.md](SPEC.md): 요구사항, 기술 버전과 근거, 테스트·작업 목록
+- [docs/db-design.md](docs/db-design.md): `travel_won` DB 설계와 화면별 쿼리
 - [docs/results.md](docs/results.md): 요구사항·구조 검토 결과와 결정 기록
 - [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md): 개발·검증 기록
 - [docs/sub_SPEC.md](docs/sub_SPEC.md): 개편 명세 원본
