@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const folder = await mkdtemp(join(tmpdir(), "wonhae-browser-"));
-const screenshotFolder = fileURLToPath(
+const screenshotFolder = process.env.SCREENSHOT_DIR || fileURLToPath(
   new URL("../docs/screenshots/", import.meta.url),
 );
 const { mkdir } = await import("node:fs/promises");
@@ -17,6 +17,7 @@ let chrome, ws, staticServer, provider, javaProcess;
 const javaLogs = [];
 let ocrRequests = 0;
 const pending = new Map(),
+  delayedPriceRequests = [],
   errors = [];
 let seq = 0,
   checks = 0;
@@ -345,6 +346,8 @@ try {
       data.error
         ? promise?.reject(new Error(data.error.message))
         : promise?.resolve(data.result);
+    } else if (data.method === "Fetch.requestPaused") {
+      delayedPriceRequests.push(data.params.requestId);
     } else if (data.method === "Runtime.exceptionThrown")
       errors.push(
         data.params.exceptionDetails.exception?.description ||
@@ -508,6 +511,74 @@ try {
   );
   await click("tab-compare");
   const storeCards = `document.querySelectorAll('[data-testid^=store-]')`;
+  const noSearchResults = `${storeCards}.length===0&&![...document.querySelectorAll('div')].some((el)=>el.textContent==='주변 매장')&&!${bodyHas("아직 주변 구매 기록이 없어요")}&&!document.querySelector('[data-testid="prices-loading"]')`;
+  await check(
+    `document.querySelector('[data-testid="product-search"]').value===''&&${noSearchResults}`,
+    "최초 진입 시 기본 검색어와 자동 검색 결과 없음",
+  );
+  await click("category-식당");
+  await check(
+    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3`,
+    "검색어 없이도 카테고리 둘러보기 가능",
+  );
+  await click("category-식당");
+  await check(noSearchResults, "검색 전 카테고리 해제 시 결과 숨김");
+  await send("Fetch.enable", {
+    patterns: [{ urlPattern: "*/prices?*", requestStage: "Request" }],
+  });
+  await click("quick-search-도리토스");
+  await check(
+    `!!document.querySelector('[data-testid="prices-loading"]')&&${bodyHas("검색 중입니다")}&&document.querySelector('[data-testid="search-loading-image"] img')?.naturalWidth>0&&!${bodyHas("아직 주변 구매 기록이 없어요")}`,
+    "가격 조회 중 푸딩 이미지와 검색 중 안내 표시, 빈 결과 숨김",
+  );
+  await screenshot("mobile-search-loading");
+  for (let i = 0; i < 50 && !delayedPriceRequests.length; i++) await pause(100);
+  assert.ok(delayedPriceRequests.length, "가격 조회 요청을 기다리는 동안 로딩 표시");
+  await send("Fetch.continueRequest", { requestId: delayedPriceRequests.shift() });
+  await send("Fetch.disable");
+  await check(
+    `${storeCards}.length===3&&document.querySelector('[data-testid="product-search"]').value==='도리토스'&&!document.querySelector('[data-testid="prices-loading"]')`,
+    "조회 완료 후 검색 안내를 닫고 빠른검색 결과 표시",
+  );
+  await send("Fetch.enable", {
+    patterns: [{ urlPattern: "*/prices?*", requestStage: "Request" }],
+  });
+  await click("search-submit");
+  await check(
+    `!!document.querySelector('[data-testid="prices-loading"]')&&${bodyHas("검색 중입니다")}`,
+    "같은 검색어를 다시 검색해도 검색 중 표시",
+  );
+  await click("tab-ledger");
+  await check(
+    `!document.querySelector('[data-testid="prices-loading"]')`,
+    "가계부 탭에서는 조회 중이어도 검색 안내 숨김",
+  );
+  await click("tab-compare");
+  await check(
+    `!!document.querySelector('[data-testid="prices-loading"]')`,
+    "조회 중인 가격 비교 탭으로 돌아오면 검색 안내 표시",
+  );
+  for (let i = 0; i < 50 && !delayedPriceRequests.length; i++) await pause(100);
+  assert.ok(delayedPriceRequests.length, "같은 검색어 재조회 요청");
+  await send("Fetch.fulfillRequest", {
+    requestId: delayedPriceRequests.shift(),
+    responseCode: 503,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/json" },
+      { name: "Access-Control-Allow-Origin", value: origin },
+    ],
+    body: Buffer.from(JSON.stringify({ error: "테스트 조회 실패" })).toString("base64"),
+  });
+  await send("Fetch.disable");
+  await check(
+    `!!document.querySelector('[data-testid="prices-error"]')&&!document.querySelector('[data-testid="prices-loading"]')&&!${bodyHas("아직 주변 구매 기록이 없어요")}`,
+    "조회 실패 시 검색 안내를 닫고 오류 표시",
+  );
+  await set("product-search", "   ");
+  await click("search-submit");
+  await check(noSearchResults, "공백 검색 시 결과와 로딩 숨김");
+  await set("product-search", "도리토스");
+  await click("search-submit");
   await check(
     `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')`,
     "서버 조회: 반경 안 도리토스 매장 세 곳을 가격순으로 표시",

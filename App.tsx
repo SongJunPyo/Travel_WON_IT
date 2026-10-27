@@ -279,6 +279,7 @@ function TravelApp() {
             {visitedCompare && (
               <View style={{ display: tab === "compare" ? "flex" : "none" }}>
                 <Compare
+                  active={tab === "compare"}
                   version={pricesVersion}
                   onRefresh={refresh}
                   syncMessage={syncMessage}
