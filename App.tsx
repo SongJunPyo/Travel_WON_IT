@@ -273,6 +273,7 @@ function TravelApp() {
             <View style={{ display: tab === "ledger" ? "flex" : "none" }}>
               <Ledger
                 state={state}
+                deviceToken={loaded ? token.current : ""}
                 onAdd={() => {
                   setEditing(null);
                   setEditor(true);

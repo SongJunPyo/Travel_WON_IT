@@ -1,0 +1,8 @@
+package com.wonit.travel.insight;
+
+import java.util.List;
+
+// '나의 소비 인사이트' 카드에 보여 줄 내용입니다.
+// facts는 문장의 근거가 된 숫자(서버 계산), basis는 비교 기준 설명(비교 대상이 5명 미만이면 null),
+// sampleData는 비교 기준에 시연 가데이터가 섞였는지, ai는 문장을 AI가 썼는지입니다.
+public record Insight(String headline, String body, String tip, List<String> facts, String basis, boolean sampleData, boolean ai) {}

@@ -17,6 +17,7 @@ import {
   validDate,
   spendingInsight,
   recommendProfile,
+  insightRequest,
 } from "../src/domain.mjs";
 
 const receipt = (overrides = {}) => ({
@@ -234,4 +235,24 @@ test("추천순 개인화 요약은 남은 예산 비율과 가장 많이 쓴 �
     budgetLeft: 100,
     favorite: null,
   });
+});
+test("소비 인사이트 요청은 여행 설정과 카테고리별 원화 합계만 담는다", () => {
+  const state = createDemo();
+  const body = insightRequest(state);
+  assert.deepEqual(Object.keys(body), ["trip", "categories"]);
+  assert.equal(body.trip, state.trip);
+  assert.deepEqual(Object.keys(body.categories), [
+    "음식",
+    "쇼핑",
+    "숙박",
+    "교통",
+    "관광",
+    "기타",
+  ]);
+  assert.equal(
+    Object.values(body.categories).reduce((s, v) => s + v, 0),
+    702388,
+  );
+  // 매장·상품·영수증 원문은 보내지 않습니다.
+  assert.ok(!JSON.stringify(body).includes("데일리마트"));
 });

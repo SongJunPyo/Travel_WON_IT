@@ -16,7 +16,8 @@ await mkdir(screenshotFolder, { recursive: true });
 let chrome, ws, staticServer, provider, javaProcess;
 const javaLogs = [];
 let ocrRequests = 0,
-  rankRequests = 0;
+  rankRequests = 0,
+  insightRequests = 0;
 const pending = new Map(),
   delayedPriceRequests = [],
   errors = [];
@@ -229,15 +230,43 @@ try {
   provider = http.createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
-    // Anthropic Messages API 대체 응답. 사진(image 블록)이 오면 영수증 인식, 아니면 추천순 재정렬입니다.
+    // Anthropic Messages API 대체 응답. 사진(image 블록)이 오면 영수증 인식, 아니면 소비 인사이트나 추천순 재정렬입니다.
     const payload = JSON.parse(raw);
     const content = payload.messages[0].content;
     const blocks = Array.isArray(content)
       ? content
       : [{ type: "text", text: content }];
+    const reply = (id, text) => {
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          id,
+          type: "message",
+          role: "assistant",
+          model: payload.model,
+          content: [{ type: "text", text }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      );
+    };
     if (!blocks.some((block) => block.type === "image")) {
-      // 추천순: 받은 후보 순서에서 앞의 두 개만 바꾸고 이유를 붙여, AI 순서가 화면에 반영되는지 확인합니다.
       const text = blocks.map((block) => block.text || "").join("\n");
+      // 소비 인사이트: 서버가 계산한 숫자(facts)가 왔는지 확인하고, 숫자 없는 문장으로 답합니다.
+      if (text.includes('"dailyAverage"')) {
+        assert.ok(text.includes('"usedPct"') && !text.includes("데일리마트"));
+        insightRequests++;
+        reply(
+          "msg_browser_insight",
+          JSON.stringify({
+            headline: "테스트 AI 인사이트",
+            body: "테스트 AI 분석 문장이에요.",
+            tip: null,
+          }),
+        );
+        return;
+      }
+      // 추천순: 받은 후보 순서에서 앞의 두 개만 바꾸고 이유를 붙여, AI 순서가 화면에 반영되는지 확인합니다.
       const ids = [...text.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]);
       assert.ok(ids.length >= 2 && text.includes("budgetLeftPct"));
       [ids[0], ids[1]] = [ids[1], ids[0]];
@@ -471,6 +500,11 @@ try {
   await send("Page.navigate", { url: origin });
   await check(`${saved}?.receipts.length===6`, "시연 영수증 초기 상태");
   await check(bodyHas("702,388"), "원화 총지출 표시");
+  // 소비 인사이트: 서버가 계산한 근거 숫자(칩)와, (가짜) AI가 그 숫자로 쓴 문장과 'AI 분석' 배지를 보여 줍니다.
+  await check(
+    `(()=>{const card=document.querySelector('[data-testid="insight-card"]');return !!card&&card.textContent.includes('AI 분석')&&card.textContent.includes('테스트 AI 인사이트')&&card.textContent.includes('예산 70% 사용')&&!!card.querySelector('[data-testid="insight-facts"]')})()`,
+    "소비 인사이트: 서버 계산 숫자와 AI 분석 문장 표시",
+  );
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -846,6 +880,7 @@ try {
   assert.deepEqual(errors, [], "브라우저 런타임 오류");
   assert.equal(ocrRequests, 1, "실제 Spring AI 구조화 출력 요청 한 번");
   assert.ok(rankRequests > 0, "추천순 AI 재정렬 요청");
+  assert.ok(insightRequests > 0, "소비 인사이트 AI 요청");
   console.log(
     JSON.stringify(
       {

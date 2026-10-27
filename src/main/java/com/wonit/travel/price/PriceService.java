@@ -1,5 +1,6 @@
 package com.wonit.travel.price;
 
+import com.wonit.travel.ai.TtlCache;
 import com.wonit.travel.api.ApiException;
 import com.wonit.travel.ledger.LedgerService;
 import com.wonit.travel.ledger.Receipt;
@@ -7,13 +8,10 @@ import com.wonit.travel.ledger.ReceiptItem;
 import com.wonit.travel.ledger.ReceiptItemRepository;
 import java.text.Normalizer;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,10 +34,7 @@ public class PriceService {
     // AI에는 점수 상위 10개만 보냅니다. 같은 조건·같은 후보의 결과는 10분(실패는 1분) 동안 다시 씁니다.
     private static final int AI_CANDIDATES = 10;
     private static final Duration AI_CACHE = Duration.ofMinutes(10), AI_FAILURE_CACHE = Duration.ofMinutes(1);
-    private record CachedPicks(List<PriceRanker.Pick> picks, Instant expires) {}
-    private final Map<String, CachedPicks> aiCache = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<String, CachedPicks> eldest) { return size() > 200; }
-    });
+    private final TtlCache<List<PriceRanker.Pick>> aiCache = new TtlCache<>(200);
     private final ReceiptItemRepository items;
     private final PriceRanker ranker;
     public PriceService(ReceiptItemRepository items, PriceRanker ranker) { this.items = items; this.ranker = ranker; }
@@ -96,18 +91,15 @@ public class PriceService {
         List<PriceRecommender.Scored> top = scored.subList(0, Math.min(AI_CANDIDATES, scored.size()));
         String cacheKey = context + "|" + top.stream().map(s -> s.record().id() + ":" + s.record().count() + ":" + s.record().unitMinor())
                 .collect(Collectors.joining(","));
-        CachedPicks cached = aiCache.get(cacheKey);
-        List<PriceRanker.Pick> picks;
-        if (cached != null && cached.expires().isAfter(Instant.now())) {
-            picks = cached.picks();
-        } else {
+        List<PriceRanker.Pick> picks = aiCache.get(cacheKey);
+        if (picks == null) {
             try {
                 picks = List.copyOf(ranker.rank(top, profile));
-                aiCache.put(cacheKey, new CachedPicks(picks, Instant.now().plus(AI_CACHE)));
+                aiCache.put(cacheKey, picks, AI_CACHE);
             } catch (RuntimeException e) {
                 log.warn("추천순 AI 재정렬 실패, 점수 순서 사용: {}", e.toString());
                 picks = List.of();
-                aiCache.put(cacheKey, new CachedPicks(picks, Instant.now().plus(AI_FAILURE_CACHE)));
+                aiCache.put(cacheKey, picks, AI_FAILURE_CACHE);
             }
         }
         Map<String, PriceRecord> candidates = new HashMap<>();

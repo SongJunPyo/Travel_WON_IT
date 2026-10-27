@@ -63,3 +63,14 @@ export type Price = {
   reason?: string | null;
   ai?: boolean;
 };
+// PAGE 1 소비 인사이트(POST /insight). facts는 서버가 계산한 근거 숫자, basis는 비교 기준(없으면 null),
+// ai는 문장을 AI가 썼는지입니다.
+export type Insight = {
+  headline: string;
+  body: string;
+  tip: string | null;
+  facts: string[];
+  basis: string | null;
+  sampleData: boolean;
+  ai: boolean;
+};

@@ -3,6 +3,7 @@ package com.wonit.travel.ocr;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.wonit.travel.api.DomainException;
 import com.wonit.travel.api.ErrorCode;
+import com.wonit.travel.ai.StructuredClaude;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,12 +68,7 @@ public class ClaudeReceiptReader implements ReceiptReader {
                     .call()
                     .chatResponse();
             // 응답 첫 블록이 빈 thinking일 수 있어 .entity() 대신 글이 든 마지막 블록을 골라 JSON으로 바꿉니다
-            String json = response.getResults().stream()
-                    .map(generation -> generation.getOutput().getText())
-                    .filter(text -> text != null && !text.isBlank())
-                    .reduce((first, last) -> last)
-                    .orElseThrow(() -> new IllegalStateException("응답에 글이 없음"));
-            fields = converter.convert(json);
+            fields = converter.convert(StructuredClaude.lastText(response));
         } catch (RuntimeException e) {      // 키 오류 · 시간 초과 · 응답 형식 오류 → 원인은 로그로 남기고 OCR_FAILED
             log.warn("영수증 인식 실패: {}", e.toString());
             throw new DomainException(ErrorCode.OCR_FAILED);

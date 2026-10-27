@@ -178,6 +178,16 @@ export function recommendProfile(summary, budget) {
     favorite: summary.total ? top.name : null,
   };
 }
+// 소비 인사이트 요청: 여행 설정과 카테고리별 원화 지출 합계만 보냅니다. 영수증·매장·상품은 보내지 않습니다.
+export function insightRequest(state) {
+  const summary = summarize(state.receipts, state.trip.budget);
+  return {
+    trip: state.trip,
+    categories: Object.fromEntries(
+      summary.categories.map((c) => [c.name, c.amount]),
+    ),
+  };
+}
 export function distanceMeters(a, b) {
   const rad = (n) => (n * Math.PI) / 180;
   const dLat = rad(b.latitude - a.latitude),
