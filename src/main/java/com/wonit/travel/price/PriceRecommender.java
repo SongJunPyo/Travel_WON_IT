@@ -17,8 +17,8 @@ public final class PriceRecommender {
     public record Profile(Integer budgetLeft, String favorite) {
         public boolean tight() { return budgetLeft != null && budgetLeft < 30; }
     }
-    // priceEdge: 같은 상품의 주변 중앙값보다 싼 비율(-0.5~0.5, 비교 대상이 없으면 0)
-    public record Scored(PriceRecord record, double score, double priceEdge, boolean cheapest, String reason) {}
+    // priceEdge: 같은 상품의 주변 중앙값보다 싼 비율(-0.5~0.5). compared: 주변에 같은 상품이 있어 비교했는지(없으면 priceEdge 0)
+    public record Scored(PriceRecord record, double score, double priceEdge, boolean compared, boolean cheapest, String reason) {}
 
     private PriceRecommender() {}
 
@@ -46,7 +46,7 @@ public final class PriceRecommender {
             double near = 1 - Math.min(r.distance(), radius) / (double) radius;
             double score = wPrice * (0.5 + edge) + wPopular * popular + wRecent * recent + wNear * near
                     + (profile.favorite() != null && profile.favorite().equals(r.category()) ? 0.05 : 0);
-            scored.add(new Scored(r, score, edge, cheapest, reason(r, cheapest, edge, maxCount, days)));
+            scored.add(new Scored(r, score, edge, same.size() >= 2, cheapest, reason(r, cheapest, edge, maxCount, days)));
         }
         scored.sort(Comparator.comparingDouble(Scored::score).reversed()
                 .thenComparingLong(s -> s.record().unitMinor()).thenComparingLong(s -> s.record().distance())

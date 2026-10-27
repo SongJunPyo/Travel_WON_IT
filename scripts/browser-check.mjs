@@ -15,7 +15,8 @@ const { mkdir } = await import("node:fs/promises");
 await mkdir(screenshotFolder, { recursive: true });
 let chrome, ws, staticServer, provider, javaProcess;
 const javaLogs = [];
-let ocrRequests = 0;
+let ocrRequests = 0,
+  rankRequests = 0;
 const pending = new Map(),
   delayedPriceRequests = [],
   errors = [];
@@ -228,11 +229,43 @@ try {
   provider = http.createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
-    // Anthropic Messages API 대체 응답. 사진이 image 블록으로 왔는지만 확인합니다.
+    // Anthropic Messages API 대체 응답. 사진(image 블록)이 오면 영수증 인식, 아니면 추천순 재정렬입니다.
     const payload = JSON.parse(raw);
-    assert.ok(
-      payload.messages[0].content.some((block) => block.type === "image"),
-    );
+    const content = payload.messages[0].content;
+    const blocks = Array.isArray(content)
+      ? content
+      : [{ type: "text", text: content }];
+    if (!blocks.some((block) => block.type === "image")) {
+      // 추천순: 받은 후보 순서에서 앞의 두 개만 바꾸고 이유를 붙여, AI 순서가 화면에 반영되는지 확인합니다.
+      const text = blocks.map((block) => block.text || "").join("\n");
+      const ids = [...text.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]);
+      assert.ok(ids.length >= 2 && text.includes("budgetLeftPct"));
+      [ids[0], ids[1]] = [ids[1], ids[0]];
+      rankRequests++;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          id: "msg_browser_rank",
+          type: "message",
+          role: "assistant",
+          model: payload.model,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                picks: ids.map((id, i) => ({
+                  id,
+                  reason: `테스트 AI 이유 ${i + 1}`,
+                })),
+              }),
+            },
+          ],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      );
+      return;
+    }
     ocrRequests++;
     // 분석을 기다리는 로딩 화면을 확인할 수 있게 잠시 늦게 응답합니다.
     await pause(1500);
@@ -586,14 +619,10 @@ try {
   await check(noSearchResults, "공백 검색 시 결과와 로딩 숨김");
   await set("product-search", "도리토스");
   await click("search-submit");
-  // 기본 정렬은 추천순: 가격은 중간이지만 가장 가깝고 최근에 산 데일리마트 A가 먼저 나옵니다.
+  // 기본 정렬은 추천순: 점수는 데일리마트 A > 산고 스토어 B > 모닝마트 C이고, (가짜) AI가 앞의 두 개를 바꿉니다.
   await check(
-    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('데일리마트 A')&&!!document.querySelector('[data-testid^=reason-]')`,
-    "상품 검색 기본 정렬은 추천순이고 추천 이유 표시",
-  );
-  await check(
-    `[...${storeCards}].find((e)=>e.textContent.includes('산고 스토어 B')).textContent.includes('주변 최저가')`,
-    "추천 이유: 같은 상품 주변 최저가",
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')&&${storeCards}[1].textContent.includes('데일리마트 A')&&${storeCards}[0].textContent.includes('AI 추천')&&${storeCards}[0].textContent.includes('테스트 AI 이유 1')`,
+    "상품 검색 기본 정렬은 AI 추천순이고 AI 추천 이유 표시",
   );
   await click("search-sort-가격순");
   await check(
@@ -630,8 +659,8 @@ try {
   const firstBrowse = `document.querySelector('[data-testid^=browse-]:not([data-testid^=browse-sort])')?.textContent||''`;
   await click("category-음식");
   await check(
-    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('라멘 소라 A')&&${firstBrowse}.includes('구매 3회로 가장 많음')`,
-    "카테고리 기본 정렬은 추천순(구매가 가장 많은 라멘 소라 A 먼저)",
+    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('카페 모쿠 C')&&${firstBrowse}.includes('AI 추천')`,
+    "카테고리 기본 정렬은 AI 추천순(점수 1위 라멘 소라 A와 2위 카페 모쿠 C를 AI가 바꿈)",
   );
   await click("browse-sort-가격순");
   await check(
@@ -816,6 +845,7 @@ try {
   }
   assert.deepEqual(errors, [], "브라우저 런타임 오류");
   assert.equal(ocrRequests, 1, "실제 Spring AI 구조화 출력 요청 한 번");
+  assert.ok(rankRequests > 0, "추천순 AI 재정렬 요청");
   console.log(
     JSON.stringify(
       {

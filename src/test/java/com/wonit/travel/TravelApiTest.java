@@ -4,6 +4,7 @@ import com.wonit.travel.api.DomainException;
 import com.wonit.travel.api.ErrorCode;
 import com.wonit.travel.ocr.ReceiptReader;
 import com.wonit.travel.ocr.RecognizedReceipt;
+import com.wonit.travel.price.PriceRanker;
 import com.wonit.travel.rate.RateSource;
 import com.wonit.travel.ledger.DeviceRepository;
 import com.wonit.travel.ledger.ReceiptRepository;
@@ -33,6 +34,8 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -48,6 +51,8 @@ class TravelApiTest {
     // Claude 영수증 리더와 한국수출입은행 API 대신 쓰는 가짜 구현. 테스트에서는 외부를 부르지 않습니다.
     ReceiptReader reader = mock(ReceiptReader.class);
     RateSource rateSource = mock(RateSource.class);
+    // 추천순 AI 재정렬 대신 쓰는 가짜 구현. 기본은 '키 없음'(configured=false)이라 점수 순서만 씁니다.
+    PriceRanker ranker = mock(PriceRanker.class);
     ConfigurableApplicationContext context;
     private final String tokenA = "Bearer " + "a".repeat(64), tokenB = "Bearer " + "b".repeat(64);
     @BeforeAll void start() {
@@ -55,6 +60,7 @@ class TravelApiTest {
                 .initializers(ctx -> {
                     ((GenericApplicationContext) ctx).registerBean("testReceiptReader", ReceiptReader.class, () -> reader, bd -> bd.setPrimary(true));
                     ((GenericApplicationContext) ctx).registerBean("testRateSource", RateSource.class, () -> rateSource, bd -> bd.setPrimary(true));
+                    ((GenericApplicationContext) ctx).registerBean("testPriceRanker", PriceRanker.class, () -> ranker, bd -> bd.setPrimary(true));
                 })
                 .run("--server.port=0", "--spring.datasource.url=jdbc:h2:mem:wonhae-tests", "--spring.jpa.hibernate.ddl-auto=create-drop");
         mvc = MockMvcBuilders.webAppContextSetup((WebApplicationContext) context)
@@ -65,7 +71,7 @@ class TravelApiTest {
         receipts = context.getBean(ReceiptRepository.class);
     }
     @AfterAll void stop() { if (context != null) context.close(); }
-    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(reader, rateSource); }
+    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(reader, rateSource, ranker); }
     // 도쿄 신주쿠역 근처 시연 위치입니다.
     private static final double LAT = 35.6896, LNG = 139.7006;
     private int nextId = 0;
@@ -197,6 +203,44 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.records[0].reason").isEmpty());
         prices("&q=doritos&budgetLeft=500").andExpect(status().isBadRequest());
         prices("&q=doritos&favorite=카페").andExpect(status().isBadRequest());
+    }
+    @Test void 추천순_AI_재정렬은_후보_안에서만_순서를_바꾸고_실패하면_점수_순서를_쓴다() throws Exception {
+        save(tokenB, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-26", 300, true),
+                receipt("테스트 매장 B", 35.6930, 139.7040, "2026-10-25", 280, true),
+                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true))).andExpect(status().isOk());
+        save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
+        var byScore = mvc.perform(get("/prices?currency=JPY&latitude=" + LAT + "&longitude=" + LNG + "&q=doritos")).andReturn().getResponse().getContentAsString();
+        var ids = mapper.readTree(byScore).get("records");
+        String a = null, b = null, c = null;
+        for (var r : ids) switch (r.get("store").asString()) {
+            case "테스트 매장 A" -> a = r.get("id").asString();
+            case "테스트 매장 B" -> b = r.get("id").asString();
+            default -> c = r.get("id").asString();
+        }
+        when(ranker.configured()).thenReturn(true);
+        // C를 맨 앞으로, 없는 id와 중복 id, 빈 이유, 너무 긴 이유를 섞어 돌려줍니다. B는 빠뜨립니다.
+        when(ranker.rank(any(), any())).thenReturn(List.of(new PriceRanker.Pick(c, "주변보다 11% 저렴해요\n"),
+                new PriceRanker.Pick("없는-id", "무시"), new PriceRanker.Pick(c, "중복"), new PriceRanker.Pick(a, "가".repeat(60))));
+        for (int i = 0; i < 2; i++)
+            prices("&q=doritos&sort=추천순").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(3))
+                    .andExpect(jsonPath("$.records[0].store").value("테스트 매장 C"))
+                    .andExpect(jsonPath("$.records[0].reason").value("주변보다 11% 저렴해요"))
+                    .andExpect(jsonPath("$.records[0].ai").value(true))
+                    .andExpect(jsonPath("$.records[1].store").value("테스트 매장 A"))
+                    .andExpect(jsonPath("$.records[1].reason").value("가".repeat(40)))
+                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 B"))
+                    .andExpect(jsonPath("$.records[2].ai").value(false));
+        // 같은 조건·같은 후보는 캐시를 써서 AI를 한 번만 부릅니다.
+        verify(ranker, times(1)).rank(any(), any());
+        // AI가 실패하면(시간 초과 등) 1단계 점수 순서와 규칙 이유를 그대로 씁니다.
+        when(ranker.rank(any(), any())).thenThrow(new IllegalStateException("추천 AI 시간 초과"));
+        prices("&q=doritos&sort=추천순&budgetLeft=10").andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                .andExpect(jsonPath("$.records[0].reason").value("구매 2회로 가장 많음"))
+                .andExpect(jsonPath("$.records[0].ai").value(false));
+        // 추천순이 아닌 정렬은 AI를 부르지 않습니다.
+        prices("&q=doritos&sort=구매수").andExpect(status().isOk());
+        verify(ranker, times(2)).rank(any(), any());
     }
     @Test void 상품_검색은_대소문자와_한국어_이름으로_찾는다() throws Exception {
         save(tokenA, List.of(receipt())).andExpect(status().isOk());
