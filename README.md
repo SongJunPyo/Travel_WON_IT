@@ -141,7 +141,7 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
    .\gradlew.bat bootRun --args="--spring.profiles.active=mysql"   # Windows
    ```
 
-   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만듭니다(지금 `travel_won`은 비어 있어 이 파일을 다시 실행해야 합니다). 앱은 아직 새 API로 바꾸기 전입니다([데이터와 한계](#데이터와-한계) 참고).
+   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만들었습니다. 앱은 아직 새 API로 바꾸기 전입니다([데이터와 한계](#데이터와-한계) 참고).
 
 6. **휴대폰에서 실행** (선택)
 
