@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.wonit'
+version = '1.0.0'
+// AGENTS.md의 JUnit 5 기준을 적용합니다 (Boot 기본값은 JUnit 6).
+ext['junit-jupiter.version'] = '5.14.2'
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+repositories { mavenCentral() }
+dependencyManagement { imports { mavenBom 'org.springframework.ai:spring-ai-bom:2.0.1' } }
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    // 모델의 JSON Schema와 응답 변환에 Spring AI를 사용합니다.
+    implementation 'org.springframework.ai:spring-ai-model'
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+tasks.named('test') { useJUnitPlatform() }

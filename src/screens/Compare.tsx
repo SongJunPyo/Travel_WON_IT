@@ -1,0 +1,718 @@
+import React, { useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  Linking,
+  ActivityIndicator,
+} from "react-native";
+import * as Location from "expo-location";
+import {
+  comparePrices,
+  browseCategory,
+  BROWSE_CATEGORIES,
+  BROWSE_SORTS,
+  DEMO_LOCATION,
+  DEMO_PRICES,
+  DEMO_PURCHASES,
+  money,
+  CURRENCIES,
+  normalizeProduct,
+} from "../domain.mjs";
+import { colors, Icon, Chip, Empty, Button } from "../components/ui";
+import { PriceMap } from "../components/PriceMap";
+import type { Coordinate, Price } from "../types";
+
+export function Compare({
+  records,
+  onRefresh,
+  syncMessage,
+}: {
+  records: Price[];
+  onRefresh: () => Promise<void>;
+  syncMessage: string;
+}) {
+  const [query, setQuery] = useState("코카콜라 500ml"),
+    [searched, setSearched] = useState("코카콜라 500ml");
+  const [location, setLocation] = useState<Coordinate>(DEMO_LOCATION),
+    [demo, setDemo] = useState(true),
+    [locating, setLocating] = useState(false),
+    [message, setMessage] = useState("");
+  const [selected, setSelected] = useState<string | null>(null),
+    [sort, setSort] = useState("가격순");
+  const [currency, setCurrency] = useState("EUR");
+  const [category, setCategory] = useState<string | null>(null),
+    [categorySort, setCategorySort] = useState("가격순");
+  const effectiveCurrency = demo ? "EUR" : currency;
+  const prices = useMemo(
+    () =>
+      comparePrices(
+        demo ? DEMO_PRICES : records,
+        searched,
+        location,
+        effectiveCurrency,
+      ),
+    [records, searched, location, demo, effectiveCurrency],
+  );
+  const sorted =
+    sort === "거리순"
+      ? [...prices].sort((a, b) => a.distance - b.distance)
+      : prices;
+  const browsed = useMemo(
+    () =>
+      category
+        ? browseCategory(
+            demo ? DEMO_PURCHASES : records,
+            category,
+            location,
+            effectiveCurrency,
+            categorySort,
+          )
+        : [],
+    [category, categorySort, records, location, demo, effectiveCurrency],
+  );
+  const shown = category ? browsed : prices;
+  const selectedPrice = shown.find((p) => p.id === selected);
+  const categoryIcon =
+    BROWSE_CATEGORIES.find((c) => c.name === category)?.icon || "bag";
+  async function locate() {
+    setLocating(true);
+    setMessage("");
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted")
+        throw new Error(
+          "위치 권한이 꺼져 있어요. 기기 설정에서 허용한 뒤 다시 시도해 주세요.",
+        );
+      const result = await Promise.race([
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "위치를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+                ),
+              ),
+            15000,
+          ),
+        ),
+      ]);
+      setLocation(result.coords);
+      setDemo(false);
+      setSelected(null);
+      await onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "위치를 확인할 수 없어요.",
+      );
+    } finally {
+      setLocating(false);
+    }
+  }
+  function search(value = query) {
+    setQuery(value);
+    setSearched(value.trim());
+    setCategory(null);
+    setSelected(null);
+  }
+  function chooseCategory(name: string) {
+    setCategory((prev) => (prev === name ? null : name));
+    setSelected(null);
+  }
+  return (
+    <View style={s.content}>
+      <Text style={s.eyebrow}>SMART FINDS, NEAR YOU</Text>
+      <Text style={s.title}>같은 상품을 더 좋은 가격에</Text>
+      <Text style={s.subtitle}>여행자들의 영수증으로 찾는 주변 가격</Text>
+      <View style={s.search}>
+        <Icon name="search" size={21} color={colors.primary} />
+        <TextInput
+          accessibilityLabel="상품 검색"
+          testID="product-search"
+          style={s.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="상품명과 용량을 입력해 주세요"
+          placeholderTextColor="#9AAEBE"
+          returnKeyType="search"
+          onSubmitEditing={() => search()}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="검색하기"
+          onPress={() => search()}
+          testID="search-submit"
+          style={s.searchButton}
+        >
+          <Icon name="arrow" size={18} color="#fff" />
+        </Pressable>
+      </View>
+      <View style={s.suggestions}>
+        <Text style={s.suggestionLabel}>빠른 검색</Text>
+        {["코카콜라 500ml", "에비앙 500ml"].map((q) => (
+          <Pressable
+            accessibilityRole="button"
+            key={q}
+            onPress={() => search(q)}
+          >
+            <Text style={s.suggestion}>{q}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={s.browseHead}>
+        <Text style={s.sectionTitle}>카테고리 둘러보기</Text>
+        <Text style={s.browseCaption}>다른 여행자의 영수증 기록</Text>
+      </View>
+      <View style={s.grid}>
+        {BROWSE_CATEGORIES.map((c) => {
+          const active = category === c.name;
+          return (
+            <Pressable
+              key={c.name}
+              accessibilityRole="button"
+              accessibilityLabel={`${c.name} 카테고리`}
+              accessibilityState={{ selected: active }}
+              onPress={() => chooseCategory(c.name)}
+              testID={`category-${c.name}`}
+              style={[
+                s.tile,
+                { backgroundColor: c.color },
+                active && s.tileActive,
+                !!category && !active && { opacity: 0.5 },
+              ]}
+            >
+              <View style={{ alignSelf: "flex-end" }}>
+                <Icon name={c.icon} color="#fff" size={22} />
+              </View>
+              <Text style={s.tileText}>{c.name}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {!demo && (
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 5,
+            flexWrap: "wrap",
+            marginBottom: 16,
+          }}
+        >
+          {Object.keys(CURRENCIES).map((c) => (
+            <Chip
+              key={c}
+              title={c}
+              active={currency === c}
+              onPress={() => setCurrency(c)}
+            />
+          ))}
+        </View>
+      )}
+      <View style={s.locationRow}>
+        <Icon name="pin" color={colors.primary} size={15} />
+        <Text style={s.locationText}>
+          {demo ? "파리 중심부 · 시연 위치" : "현재 위치 · 반경 3km"}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="현재 위치 사용"
+          onPress={locate}
+          disabled={locating}
+          style={s.locateButton}
+        >
+          {locating ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Icon name="location" size={14} color={colors.primary} />
+          )}
+          <Text style={s.locateText}>{locating ? "확인 중" : "내 위치"}</Text>
+        </Pressable>
+      </View>
+      {message ? (
+        <Text accessibilityRole="alert" style={s.error}>
+          {message}
+        </Text>
+      ) : null}
+      <PriceMap
+        center={location}
+        prices={shown}
+        selected={selected}
+        onSelect={setSelected}
+      />
+      <View style={s.mapCaption}>
+        <View style={s.mapDot} />
+        <Text style={s.mapCaptionText}>
+          {demo ? "파란 점은 시연 기준 위치예요" : "파란 점은 현재 위치예요"}
+        </Text>
+        <Text style={s.demoBadge}>
+          {demo ? "가상 매장 · 시연 가격" : "공유 영수증 기록"}
+        </Text>
+      </View>
+      {selectedPrice && (
+        <View style={s.selected}>
+          <Icon name="pin" color={colors.primary} size={18} />
+          <Text style={s.selectedText}>
+            {selectedPrice.store} ·{" "}
+            {money(selectedPrice.unitMinor, selectedPrice.currency)}
+          </Text>
+          <Pressable
+            onPress={() => setSelected(null)}
+            accessibilityLabel="매장 선택 해제"
+          >
+            <Icon name="close" size={16} />
+          </Pressable>
+        </View>
+      )}
+      {category ? (
+        <>
+          <View style={s.resultsHead}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={s.sectionTitle}>{category}</Text>
+              <Text style={s.count}>{browsed.length}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="카테고리 선택 해제"
+              onPress={() => chooseCategory(category)}
+              style={{ padding: 6 }}
+            >
+              <Icon name="close" size={16} color={colors.muted} />
+            </Pressable>
+          </View>
+          <View style={s.sorts}>
+            {BROWSE_SORTS.map((x) => (
+              <Chip
+                key={x.name}
+                title={x.ready ? x.name : `${x.name} · 준비 중`}
+                active={categorySort === x.name}
+                disabled={!x.ready}
+                onPress={() => setCategorySort(x.name)}
+                testID={`browse-sort-${x.name}`}
+              />
+            ))}
+          </View>
+          <Text style={s.productTitle}>
+            다른 여행자의 영수증 기록
+            <Text style={s.unitNote}> · 최근 구매가격 · {effectiveCurrency}</Text>
+          </Text>
+          {browsed.length ? (
+            browsed.map((p) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${p.store} 매장 선택`}
+                onPress={() => setSelected(p.id)}
+                key={p.id}
+                style={[
+                  s.storeCard,
+                  selected === p.id && { borderColor: colors.primary },
+                ]}
+                testID={`browse-${p.id}`}
+              >
+                <View style={s.storeTop}>
+                  <View style={s.storeIcon}>
+                    <Icon name={categoryIcon} color="#819CB2" size={22} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.storeName}>{p.store}</Text>
+                    <Text style={s.storeDistance}>{p.product}</Text>
+                  </View>
+                  <Text style={s.price}>{money(p.unitMinor, p.currency)}</Text>
+                </View>
+                <View style={s.storeBottom}>
+                  <Text style={s.purchaseDate}>
+                    최근 구매일 {p.date.replace(/-/g, ".")}
+                  </Text>
+                  <Text style={s.purchaseCount}>구매 {p.count}회</Text>
+                </View>
+              </Pressable>
+            ))
+          ) : (
+            <View style={s.emptyCard}>
+              <Empty
+                icon="search"
+                title="아직 이 카테고리의 공유 기록이 없어요"
+                detail="다른 여행자의 영수증 기록이 쌓이면 여기에 표시돼요."
+              />
+            </View>
+          )}
+        </>
+      ) : (
+        <>
+          <View style={s.resultsHead}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={s.sectionTitle}>주변 매장</Text>
+              <Text style={s.count}>{prices.length}</Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              {["가격순", "거리순"].map((x) => (
+                <Chip
+                  key={x}
+                  title={x}
+                  active={sort === x}
+                  onPress={() => setSort(x)}
+                />
+              ))}
+            </View>
+          </View>
+          <Text style={s.productTitle}>
+            {searched || "상품명을 입력해 주세요"}
+            <Text style={s.unitNote}> · 개당 가격 · {effectiveCurrency}</Text>
+          </Text>
+          {sorted.length ? (
+            sorted.map((p) => {
+              const comparable = prices.filter(
+                (row) =>
+                  normalizeProduct(row.product) === normalizeProduct(p.product),
+              );
+              const lowest = Math.min(...comparable.map((row) => row.unitMinor));
+              const cheapest = p.unitMinor === lowest,
+                active = selected === p.id;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${p.store} 매장 선택`}
+                  onPress={() => setSelected(p.id)}
+                  key={p.id}
+                  style={[
+                    s.storeCard,
+                    cheapest && s.cheapest,
+                    active && { borderColor: colors.primary },
+                  ]}
+                  testID={`store-${p.id}`}
+                >
+                  <View style={s.storeTop}>
+                    <View
+                      style={[
+                        s.storeIcon,
+                        cheapest && { backgroundColor: "#DCEFFD" },
+                      ]}
+                    >
+                      <Icon
+                        name="bag"
+                        color={cheapest ? colors.primary : "#819CB2"}
+                        size={22}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={s.storeNameRow}>
+                        <Text style={s.storeName}>{p.store}</Text>
+                        {cheapest && <Text style={s.lowest}>최저 기록</Text>}
+                      </View>
+                      <Text style={[s.storeDistance, { fontSize: 8 }]}>
+                        {p.product}
+                      </Text>
+                      <Text style={s.storeDistance}>
+                        {p.distance < 1000
+                          ? `${p.distance}m`
+                          : `${(p.distance / 1000).toFixed(1)}km`}{" "}
+                        · 도보 약 {Math.max(1, Math.ceil(p.distance / 70))}분{" "}
+                        <Text style={{ color: "#A5B4C1" }}>추정</Text>
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text
+                        style={[s.price, cheapest && { color: colors.primary }]}
+                      >
+                        {money(p.unitMinor, p.currency)}
+                      </Text>
+                      {!cheapest && (
+                        <Text style={s.priceDiff}>
+                          동일 상품 최저보다 +
+                          {money(p.unitMinor - lowest, p.currency)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={s.storeBottom}>
+                    <Text style={s.purchaseDate}>
+                      구매일 {p.date.replace(/-/g, ".")}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="link"
+                      accessibilityLabel={`${p.store} 지도에서 보기`}
+                      onPress={() =>
+                        Linking.openURL(
+                          `https://www.openstreetmap.org/?mlat=${p.latitude}&mlon=${p.longitude}#map=18/${p.latitude}/${p.longitude}`,
+                        )
+                      }
+                    >
+                      <Text style={s.mapLink}>위치 보기 ↗</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={s.emptyCard}>
+              <Empty
+                icon="search"
+                title="아직 주변 구매 기록이 없어요"
+                detail={
+                  "같은 상품의 구매 기록이 쌓이면 여기에 표시돼요.\n상품명과 용량을 다시 확인해 보세요."
+                }
+              />
+            </View>
+          )}
+        </>
+      )}
+      <View style={s.notice}>
+        <Icon name="info" color="#8AA0B4" size={16} />
+        <Text style={s.noticeText}>
+          영수증에 기록된 과거 구매가격이에요. 현재 가격과 재고는 다를 수
+          있어요. 도보 시간은 직선거리 기준 추정치예요.
+        </Text>
+      </View>
+      <View style={s.sharing}>
+        <View style={s.sharingHeading}>
+          <Icon name="receipt" color={colors.primary} size={19} />
+          <Text style={s.sharingTitle}>나의 기록이 누군가의 좋은 선택으로</Text>
+        </View>
+        <Text style={s.sharingText}>
+          공유에 동의한 상품 가격만 모아요. 영수증 사진과 개인 결제정보는
+          공유하지 않아요.
+        </Text>
+      </View>
+      <View style={{ gap: 10, marginTop: 16 }}>
+        {!demo && (
+          <Button
+            title="공유 기록 새로고침"
+            variant="outline"
+            onPress={() => {
+              void onRefresh();
+            }}
+          />
+        )}
+        {!demo && (
+          <Button
+            title="파리 시연 데이터 보기"
+            variant="soft"
+            onPress={() => {
+              setDemo(true);
+              setLocation(DEMO_LOCATION);
+              setSelected(null);
+            }}
+          />
+        )}
+        <Text style={s.sync}>
+          {demo ? "시연 매장의 이름·가격·위치는 모두 가상이에요." : syncMessage}
+        </Text>
+      </View>
+    </View>
+  );
+}
+const s = StyleSheet.create({
+  content: { padding: 24, paddingTop: 14 },
+  eyebrow: {
+    fontSize: 9,
+    color: colors.primary,
+    fontWeight: "700",
+    letterSpacing: 2,
+    marginBottom: 9,
+  },
+  title: {
+    fontSize: 25,
+    fontWeight: "800",
+    color: colors.ink,
+    letterSpacing: -1.2,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  search: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#BCD9F0",
+    borderRadius: 16,
+    padding: 8,
+    paddingLeft: 14,
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.ink,
+    paddingVertical: 8,
+    minWidth: 0,
+    outlineWidth: 0,
+  },
+  searchButton: {
+    backgroundColor: colors.primary,
+    padding: 10,
+    borderRadius: 11,
+  },
+  suggestions: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "center",
+    marginTop: 12,
+    marginBottom: 24,
+    flexWrap: "wrap",
+  },
+  suggestionLabel: { fontSize: 9, color: colors.muted },
+  suggestion: { fontSize: 10, color: "#6F8DA5" },
+  browseHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: 13,
+  },
+  browseCaption: { fontSize: 10, color: colors.muted },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginBottom: 24 },
+  tile: {
+    flexGrow: 1,
+    flexBasis: "45%",
+    height: 78,
+    borderRadius: 14,
+    padding: 13,
+    justifyContent: "space-between",
+  },
+  tileActive: { borderWidth: 2.5, borderColor: colors.ink },
+  tileText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  sorts: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 12 },
+  purchaseCount: { fontSize: 9, color: colors.primary, fontWeight: "700" },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 12,
+  },
+  locationText: { flex: 1, fontSize: 11, color: "#5E7B92" },
+  locateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    padding: 7,
+    borderRadius: 10,
+    backgroundColor: "#E9F2FA",
+  },
+  locateText: { fontSize: 10, color: colors.primary, fontWeight: "600" },
+  error: { color: "#B7624E", fontSize: 11, lineHeight: 18, marginBottom: 12 },
+  mapCaption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 11,
+  },
+  mapDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  mapCaptionText: { fontSize: 9, color: colors.muted, flex: 1 },
+  demoBadge: { color: "#8AA0B4", fontSize: 8 },
+  selected: {
+    backgroundColor: "#E6F2FB",
+    borderRadius: 12,
+    marginTop: 15,
+    flexDirection: "row",
+    gap: 8,
+    padding: 12,
+    alignItems: "center",
+  },
+  selectedText: {
+    flex: 1,
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  resultsHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 25,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.ink,
+    letterSpacing: -0.6,
+  },
+  count: { color: colors.primary, fontSize: 14, fontWeight: "700" },
+  productTitle: {
+    marginTop: 14,
+    marginBottom: 13,
+    color: "#5F7B91",
+    fontWeight: "600",
+    fontSize: 11,
+  },
+  unitNote: { fontSize: 9, color: colors.muted, fontWeight: "400" },
+  storeCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 17,
+    marginBottom: 11,
+  },
+  cheapest: { borderColor: "#B9D8EE", backgroundColor: "#F9FCFF" },
+  storeTop: { flexDirection: "row", gap: 11, alignItems: "center" },
+  storeIcon: { backgroundColor: "#F0F5F9", borderRadius: 12, padding: 10 },
+  storeNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  storeName: { fontSize: 13, color: colors.ink, fontWeight: "700" },
+  lowest: {
+    fontSize: 8,
+    color: colors.primary,
+    backgroundColor: "#E2EFFA",
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  storeDistance: { fontSize: 9, color: colors.muted, marginTop: 7 },
+  price: {
+    fontSize: 22,
+    color: colors.ink,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+  },
+  priceDiff: { fontSize: 8, color: colors.muted, marginTop: 4 },
+  storeBottom: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 12,
+    marginTop: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  purchaseDate: { fontSize: 9, color: colors.muted },
+  mapLink: { fontSize: 9, color: "#6086A3" },
+  emptyCard: { backgroundColor: "#fff", borderRadius: 18 },
+  notice: { flexDirection: "row", gap: 7, marginTop: 5, padding: 10 },
+  noticeText: { flex: 1, fontSize: 10, color: "#879BAE", lineHeight: 18 },
+  sharing: {
+    backgroundColor: "#EAF3FC",
+    borderRadius: 17,
+    padding: 17,
+    marginTop: 15,
+  },
+  sharingHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
+  sharingTitle: {
+    color: colors.primary,
+    fontWeight: "700",
+    fontSize: 12,
+    flex: 1,
+  },
+  sharingText: { marginTop: 9, color: "#6F8CA4", fontSize: 11, lineHeight: 19 },
+  sync: {
+    textAlign: "center",
+    color: colors.muted,
+    fontSize: 9,
+    lineHeight: 16,
+    marginBottom: 24,
+  },
+});

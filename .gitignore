@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+web-build/
+ios/
+android/
+.env
+.env.*
+!.env.example
+server/data/
+.gradle/
+build/
+data/
+coverage/
+*.log
+.DS_Store
