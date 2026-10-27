@@ -24,6 +24,7 @@ import { colors, Icon, Chip, Empty, Button, Sheet } from "../components/ui";
 import { PriceMap } from "../components/PriceMap";
 import type { Coordinate, Price } from "../types";
 
+const PAGE_SIZE = 5;
 // 흰 글자가 잘 보이도록 가계부 차트 색보다 진한 타일 색을 씁니다.
 const TILE_COLORS: Record<string, string> = {
   음식: "#D9653B",
@@ -61,6 +62,8 @@ export function Compare({
   const [rows, setRows] = useState<Price[]>([]),
     [loading, setLoading] = useState(false),
     [loadError, setLoadError] = useState("");
+  // 결과는 5개씩 보여 주고, '더 보기'를 누를 때마다 5개씩 늘립니다.
+  const [limit, setLimit] = useState(PAGE_SIZE);
   // 신주쿠 시연 가데이터는 엔화(JPY)로 쌓여 있습니다.
   const effectiveCurrency = demo ? "JPY" : currency;
   // 서버가 반경 3km 안의 공유 영수증을 매장·상품별로 묶어 돌려줍니다. 카테고리를 고르면 카테고리, 아니면 검색어로 찾습니다.
@@ -96,6 +99,10 @@ export function Compare({
       active = false;
     };
   }, [category, categorySort, searched, location, effectiveCurrency, version]);
+  // 조회 조건이나 정렬이 바뀌면 다시 처음 5개부터 보여 줍니다.
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [category, categorySort, searched, sort, location, effectiveCurrency]);
   const prices = category ? [] : rows,
     browsed = category ? rows : [];
   const sorted =
@@ -104,6 +111,16 @@ export function Compare({
       : prices;
   const shown = rows;
   const selectedPrice = shown.find((p) => p.id === selected);
+  const moreButton = (total: number) =>
+    total > limit ? (
+      <Button
+        title={`더 보기 (${total - limit}개 남음)`}
+        variant="outline"
+        onPress={() => setLimit((n) => n + PAGE_SIZE)}
+        testID="show-more"
+        style={{ marginBottom: 11 }}
+      />
+    ) : null;
   const categoryIcon =
     CATEGORIES.find((c) => c.name === category)?.icon || "bag";
   // 고른 카테고리의 결과는 그 타일이 있는 줄 바로 아래에 펼칩니다.
@@ -157,7 +174,7 @@ export function Compare({
         <Text style={s.unitNote}> · 최근 구매가격 · {effectiveCurrency}</Text>
       </Text>
       {browsed.length ? (
-        browsed.map((p) => (
+        browsed.slice(0, limit).map((p) => (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${storeLabel(p)} 매장 선택`}
@@ -199,6 +216,7 @@ export function Compare({
           />
         </View>
       )}
+      {moreButton(browsed.length)}
     </View>
   ) : null;
   async function locate() {
@@ -409,7 +427,7 @@ export function Compare({
             <Text style={s.unitNote}> · 개당 가격 · {effectiveCurrency}</Text>
           </Text>
           {sorted.length ? (
-            sorted.map((p) => {
+            sorted.slice(0, limit).map((p) => {
               const comparable = prices.filter(
                 (row) =>
                   normalizeProduct(row.product) === normalizeProduct(p.product),
@@ -508,6 +526,7 @@ export function Compare({
               />
             </View>
           )}
+          {moreButton(sorted.length)}
         </>
       )}
       <View style={s.notice}>
