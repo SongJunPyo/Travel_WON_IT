@@ -35,7 +35,7 @@ public class PriceService {
         if (currency == null || !LedgerService.CURRENCIES.contains(currency) || latitude == null || longitude == null
                 || !Double.isFinite(latitude) || Math.abs(latitude) > 85.0511 || !Double.isFinite(longitude) || Math.abs(longitude) > 180
                 || meters < 100 || meters > 20000 || !ORDER.containsKey(order)
-                || (category != null && !LedgerService.BROWSE_CATEGORIES.contains(category))
+                || (category != null && !LedgerService.LEDGER_CATEGORIES.contains(category))
                 || (query != null && (query.length() > 50 || key.isEmpty())))
             throw new ApiException(400, "조회 조건(통화·위치·반경·카테고리·검색어·정렬)을 확인해 주세요.");
         double dLat = meters / 111_320.0, dLng = meters / (111_320.0 * Math.cos(Math.toRadians(latitude)));
@@ -54,7 +54,7 @@ public class PriceService {
             Receipt r = i.receipt();
             return new PriceRecord(String.valueOf(i.id()), r.storeName(), r.storeNameKo(), r.storeAddress(), r.latitude(), r.longitude(),
                     i.nameKo() == null ? i.rawName() : i.nameKo(), r.currency(), r.purchasedDate().toString(), i.unitMinor(),
-                    r.browseCategory(), counts.get(e.getKey()), distance(latitude, longitude, r));
+                    r.ledgerCategory(), counts.get(e.getKey()), distance(latitude, longitude, r));
         }).sorted(ORDER.get(order).thenComparingLong(PriceRecord::distance).thenComparing(PriceRecord::id)).limit(200).toList();
     }
     // 상품명(원문·한국어)과 매장명(원문·한국어) 중 하나라도 검색어를 포함하면 찾습니다. 띄어쓰기·대소문자는 무시합니다.

@@ -72,7 +72,7 @@ public class Receipt {
     public String storeAddress() { return storeAddress; }
     public Double latitude() { return latitude; }
     public Double longitude() { return longitude; }
-    public String browseCategory() { return browseCategory; }
+    public String ledgerCategory() { return ledgerCategory; }
     public LocalDate purchasedDate() { return purchasedDate; }
     public String currency() { return currency; }
     public LocalDateTime createdAt() { return createdAt; }
