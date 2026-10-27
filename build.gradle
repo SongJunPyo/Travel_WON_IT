@@ -15,11 +15,13 @@ dependencyManagement { imports { mavenBom 'org.springframework.ai:spring-ai-bom:
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    // 모델의 JSON Schema와 응답 변환에 Spring AI를 사용합니다.
-    implementation 'org.springframework.ai:spring-ai-model'
-    runtimeOnly 'com.h2database:h2'
+    // 영수증 사진 인식: Spring AI ChatClient + Claude (98_HACKATHON/my-hackathon과 같은 구성)
+    implementation 'org.springframework.ai:spring-ai-starter-model-anthropic'
+    runtimeOnly 'com.mysql:mysql-connector-j'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    // 테스트는 MySQL 없이 H2(MySQL 모드)로 돕니다.
+    testRuntimeOnly 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 tasks.named('test') { useJUnitPlatform() }

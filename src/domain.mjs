@@ -41,17 +41,22 @@ export function parseMoney(value, currency = "EUR") {
     throw new Error("금액은 0보다 큰 값으로 입력해 주세요.");
   return minor;
 }
+const RATE_SCALE = 10_000n;
+// 적용 환율(1 외화당 원화, 0 초과 1,000,000 이하, 소수 4자리까지)을 ×10,000 정수로 바꿉니다. 형식이 틀리면 null.
+export function rateUnits(rate) {
+  const str = String(rate ?? "").trim();
+  if (!/^\d+(\.\d{1,4})?$/.test(str)) return null;
+  const [whole, fraction = ""] = str.split(".");
+  const units = BigInt(whole) * RATE_SCALE + BigInt(fraction.padEnd(4, "0"));
+  return units > 0n && units <= 1_000_000n * RATE_SCALE ? units : null;
+}
 export function toWon(minor, currency, rate) {
-  if (
-    !Number.isSafeInteger(minor) ||
-    minor < 0 ||
-    !Number.isSafeInteger(rate) ||
-    rate < 1 ||
-    rate > 1_000_000
-  )
+  const units = rateUnits(rate);
+  if (!Number.isSafeInteger(minor) || minor < 0 || units === null)
     throw new Error("금액 또는 적용 환율을 확인해 주세요.");
-  const scale = BigInt(CURRENCIES[currency].scale);
-  return Number((BigInt(minor) * BigInt(rate) + scale / 2n) / scale);
+  // 금액 × 환율을 끝까지 정수로 계산한 뒤 원 단위로 사사오입합니다 (JPY 8.4174도 그대로 계산).
+  const scale = BigInt(CURRENCIES[currency].scale) * RATE_SCALE;
+  return Number((BigInt(minor) * units + scale / 2n) / scale);
 }
 export function normalizeProduct(name) {
   return String(name)
@@ -90,6 +95,7 @@ export function validateReceipt(receipt) {
     if (
       !item.name?.trim() ||
       item.name.length > 160 ||
+      (item.nameKo != null && String(item.nameKo).length > 160) ||
       !Number.isSafeInteger(item.quantity) ||
       item.quantity < 1 ||
       item.quantity > 999 ||
@@ -240,18 +246,11 @@ export function browseCategory(
     const latest = !prev || isNewer(row, prev) ? { ...row, distance } : prev;
     groups.set(id, { ...latest, count: (prev?.count || 0) + 1 });
   }
-  return [...groups.values()].sort(
-    BROWSE_ORDER[sort] || BROWSE_ORDER.가격순,
-  );
+  return [...groups.values()].sort(BROWSE_ORDER[sort] || BROWSE_ORDER.가격순);
 }
 export function publicPrices(receipt) {
-  if (
-    receipt.shareConsent !== true ||
-    receipt.demo ||
-    !receipt.location ||
-    !receipt.address?.trim()
-  )
-    return [];
+  // 동의 절차 없이 시연이 아닌 영수증은 모두 공유합니다. 위치·주소가 있어야 지도에 표시할 수 있어요.
+  if (receipt.demo || !receipt.location || !receipt.address?.trim()) return [];
   return receipt.items.map((i, index) => ({
     id: `${receipt.id}-${index}`,
     receiptId: receipt.id,
@@ -259,8 +258,10 @@ export function publicPrices(receipt) {
     address: receipt.address,
     latitude: receipt.location.latitude,
     longitude: receipt.location.longitude,
-    product: i.name,
-    normalized: normalizeProduct(i.name),
+    // 다른 나라 영수증과도 묶이도록 한국어 번역을 우선 씁니다. 원어는 original로 함께 보여 줍니다.
+    product: i.nameKo || i.name,
+    original: i.name,
+    normalized: normalizeProduct(i.nameKo || i.name),
     unitMinor: i.unitMinor,
     currency: receipt.currency,
     date: receipt.date,
@@ -356,7 +357,14 @@ export const DEMO_PRICES = [
 // 카테고리 둘러보기 시연용 가상 거래 기록입니다. 매장·가격·좌표는 모두 가상입니다.
 // [카테고리, 매장, 상품, 위도, 경도, 최근 구매부터의 개당 가격(센트)]
 const DEMO_BROWSE_STORES = [
-  ["식당", "비스트로 A", "오늘의 메뉴", 48.8606, 2.341, [1800, 1750, 1800, 1650]],
+  [
+    "식당",
+    "비스트로 A",
+    "오늘의 메뉴",
+    48.8606,
+    2.341,
+    [1800, 1750, 1800, 1650],
+  ],
   ["식당", "브라스리 B", "크로크 무슈", 48.8541, 2.35, [1250, 1250]],
   ["식당", "카페 C", "카페 크렘", 48.857, 2.3525, [420, 400, 420, 380, 420]],
   ["명소", "미술관 A", "성인 입장권", 48.86, 2.333, [1600, 1600, 1600]],
@@ -368,11 +376,32 @@ const DEMO_BROWSE_STORES = [
   ["뷰티·웰니스", "스파 A", "아로마 마사지 60분", 48.8655, 2.336, [9000, 9500]],
   ["뷰티·웰니스", "네일숍 B", "젤 네일", 48.852, 2.356, [4500]],
   ["숙박", "호텔 A", "더블룸 1박", 48.857, 2.361, [16500, 15900, 16500]],
-  ["숙박", "호스텔 B", "도미토리 1박", 48.866, 2.3555, [4200, 4200, 4500, 4200]],
-  ["액티비티", "리버 크루즈 A", "1시간 크루즈", 48.859, 2.328, [1700, 1700, 1600]],
+  [
+    "숙박",
+    "호스텔 B",
+    "도미토리 1박",
+    48.866,
+    2.3555,
+    [4200, 4200, 4500, 4200],
+  ],
+  [
+    "액티비티",
+    "리버 크루즈 A",
+    "1시간 크루즈",
+    48.859,
+    2.328,
+    [1700, 1700, 1600],
+  ],
   ["액티비티", "자전거 투어 B", "3시간 투어", 48.854, 2.342, [3900, 3900]],
   ["렌트", "렌터카 A", "소형차 1일", 48.8505, 2.346, [6500, 6900]],
-  ["렌트", "자전거 대여 B", "전기자전거 1일", 48.861, 2.358, [2500, 2500, 2400]],
+  [
+    "렌트",
+    "자전거 대여 B",
+    "전기자전거 1일",
+    48.861,
+    2.358,
+    [2500, 2500, 2400],
+  ],
 ];
 export const DEMO_PURCHASES = DEMO_BROWSE_STORES.flatMap(
   ([category, store, product, latitude, longitude, prices], s) =>

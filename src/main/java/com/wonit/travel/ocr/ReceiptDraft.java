@@ -1,16 +1,10 @@
 package com.wonit.travel.ocr;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
-public record ReceiptDraft(
-        @JsonProperty(required = true) String store,
-        @JsonProperty(required = true) String date,
-        @JsonProperty(required = true) String currency,
-        @JsonProperty(required = true) String category,
-        @JsonProperty(required = true) long totalMinor,
-        @JsonProperty(required = true) List<Item> items) {
-    public record Item(@JsonProperty(required = true) String name,
-            @JsonProperty(required = true) int quantity,
-            @JsonProperty(required = true) long unitMinor) {}
+/** 앱 편집 화면에 채울 인식 초안. 매장명·매장 주소·구매일·한국어 상품명은 읽지 못하면 null입니다. */
+public record ReceiptDraft(String store, String address, String date, String currency, String category,
+        long totalMinor, List<Item> items) {
+    /** name은 영수증 원어 그대로, nameKo는 한국어 번역입니다. */
+    public record Item(String name, String nameKo, int quantity, long unitMinor) {}
 }

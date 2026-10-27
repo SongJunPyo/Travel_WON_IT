@@ -168,8 +168,7 @@ export function Ledger({
                       fill="none"
                       strokeDasharray={`${Math.max(0, part - 3)} ${370.708 - Math.max(0, part - 3)}`}
                       strokeDashoffset={offset}
-                      rotation={-90}
-                      origin="74,74"
+                      transform="rotate(-90 74 74)"
                     />
                   );
                 })}
