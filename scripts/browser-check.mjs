@@ -5,16 +5,18 @@ import { extname, resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createDemo } from "../src/domain.mjs";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const folder = await mkdtemp(join(tmpdir(), "wonhae-browser-"));
-const screenshotFolder = fileURLToPath(
+const screenshotFolder = process.env.SCREENSHOT_DIR || fileURLToPath(
   new URL("../docs/screenshots/", import.meta.url),
 );
 const { mkdir } = await import("node:fs/promises");
 await mkdir(screenshotFolder, { recursive: true });
 let chrome, ws, staticServer, provider, javaProcess;
 const javaLogs = [];
+const onboardingOnly = process.env.ONBOARDING_ONLY === "1";
 let ocrRequests = 0;
 const pending = new Map(),
   errors = [];
@@ -80,6 +82,7 @@ try {
     );
   });
   await new Promise((r) => provider.listen(0, "127.0.0.1", r));
+  if (!onboardingOnly) {
   javaProcess = spawn(
     "java",
     [
@@ -110,6 +113,7 @@ try {
     await pause(100);
   }
   if (!apiReady) throw new Error("Spring API 시작 실패\n" + javaLogs.join(""));
+  }
   chrome = spawn(
     process.env.CHROME_PATH ||
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -163,7 +167,14 @@ try {
   const send = (method, params = {}) =>
     new Promise((resolve, reject) => {
       const id = ++seq;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`Chrome 응답 시간 초과: ${method}`));
+      }, 15000);
+      pending.set(id, {
+        resolve: (result) => { clearTimeout(timer); resolve(result); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       ws.send(JSON.stringify({ id, method, params }));
     });
   const evaluate = async (expression) => {
@@ -242,8 +253,34 @@ try {
     mobile: false,
   });
   await send("Page.navigate", { url: origin });
+  await check(bodyHas("어디로 떠나시나요?"), "첫 실행 여행 설정 표시");
+  await send("Emulation.setDeviceMetricsOverride", { width: 320, height: 844, deviceScaleFactor: 1, mobile: true });
+  await check("document.documentElement.scrollWidth<=320", "첫 설정 320px 가로 넘침 없음");
+  await screenshot("trip-setup");
+  await click("save-settings");
+  await check(bodyHas("여행 국가를 선택하거나 입력해 주세요."), "국가 필수 검증");
+  await click("country-일본");
+  await set("trip-city", "도쿄");
+  await set("trip-start", "2026-11-10");
+  await set("trip-end", "2026-11-09");
+  await set("trip-budget", "500000");
+  await click("save-settings");
+  await check(bodyHas("여행 기간을 YYYY-MM-DD 형식으로 확인해 주세요."), "여행 기간 검증");
+  await set("trip-end", "2026-11-12");
+  await click("save-settings");
+  await check(`${saved}?.trip.country==='일본'&&${saved}.trip.city==='도쿄'&&${saved}.trip.budget===500000&&${saved}.receipts.length===0`, "여행 설정 저장과 빈 가계부");
+  await send("Page.reload");
+  await check(`${bodyHas("도쿄 여행")} && !document.querySelector('[data-testid="trip-country"]')`, "재실행 시 저장한 여행 표시");
+  await click("trip-settings");
+  await set("trip-country", "캐나다");
+  await click("save-settings");
+  await check(`${saved}.trip.country==='캐나다'`, "기존 설정에서 국가 수정");
+  await evaluate(`localStorage.setItem('travel-wonhae-mobile-v1', ${JSON.stringify(JSON.stringify(createDemo()))})`);
+  await send("Page.reload");
   await check(`${saved}?.receipts.length===6`, "시연 영수증 초기 상태");
   await check(bodyHas("665,120"), "원화 총지출 표시");
+  if (!onboardingOnly) {
+  await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1050, deviceScaleFactor: 1, mobile: false });
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -469,15 +506,16 @@ try {
       );
     }
   }
-  assert.deepEqual(errors, [], "브라우저 런타임 오류");
   assert.equal(ocrRequests, 1, "실제 Spring AI 구조화 출력 요청 한 번");
+  }
+  assert.deepEqual(errors, [], "브라우저 런타임 오류");
   console.log(
     JSON.stringify(
       {
         passed: checks,
         runtimeErrors: errors,
         screenshots: screenshotFolder,
-        note: "실제 Spring Boot·JPA·H2 서버 사용. OpenAI 공급자만 로컬 응답으로 대체.",
+        note: onboardingOnly ? "첫 여행 설정 흐름만 검사 (API 서버 없이 실행)." : "실제 Spring Boot·JPA·H2 서버 사용. OpenAI 공급자만 로컬 응답으로 대체.",
       },
       null,
       2,

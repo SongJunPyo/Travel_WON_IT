@@ -21,7 +21,7 @@ import * as Crypto from "expo-crypto";
 import { Ledger } from "./src/screens/Ledger";
 import { Compare } from "./src/screens/Compare";
 import { ReceiptEditor } from "./src/components/ReceiptEditor";
-import { TripSettings } from "./src/components/TripSettings";
+import { TripSettings, TripSetup } from "./src/components/TripSettings";
 import { colors, Icon } from "./src/components/ui";
 import {
   createDemo,
@@ -37,6 +37,7 @@ const STORAGE_KEY = "travel-wonhae-mobile-v1",
 function TravelApp() {
   const [state, setState] = useState<TravelState>(() => createDemo()),
     [loaded, setLoaded] = useState(false),
+    [needsSetup, setNeedsSetup] = useState(false),
     [storageFailed, setStorageFailed] = useState(false);
   const [tab, setTab] = useState("ledger"),
     [visitedCompare, setVisitedCompare] = useState(false),
@@ -80,6 +81,13 @@ function TravelApp() {
             throw new Error("저장 형식 오류");
           parsed.receipts.forEach(validateReceipt);
           if (active) setState(parsed);
+        } else if (active) {
+          setState((prev) => ({
+            ...prev,
+            trip: { ...prev.trip, country: "", city: "", start: "", end: "", budget: 0, currency: "KRW", rate: 1 },
+            receipts: [],
+          }));
+          setNeedsSetup(true);
         }
       } catch {
         if (active) {
@@ -97,7 +105,7 @@ function TravelApp() {
     };
   }, []);
   useEffect(() => {
-    if (!loaded || storageFailed) return;
+    if (!loaded || storageFailed || needsSetup) return;
     writeQueue.current = writeQueue.current
       .then(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)))
       .catch(() => {
@@ -106,9 +114,9 @@ function TravelApp() {
           "기기에 저장하지 못했어요. 저장 공간과 브라우저 설정을 확인해 주세요.",
         );
       });
-  }, [state, loaded, storageFailed]);
+  }, [state, loaded, storageFailed, needsSetup]);
   async function refresh() {
-    if (!token.current || storageFailed) return;
+    if (!token.current || storageFailed || needsSetup) return;
     // 전체 공개 스냅샷을 순서대로 동기화해 삭제·동의 철회와 재시도를 함께 처리합니다.
     const snapshot = state.receipts.flatMap(publicPrices);
     syncQueue.current = syncQueue.current.then(async () => {
@@ -126,9 +134,9 @@ function TravelApp() {
   }
   useEffect(() => {
     if (loaded) void refresh();
-  }, [state.receipts, loaded, storageFailed]);
+  }, [state.receipts, loaded, storageFailed, needsSetup]);
   useEffect(() => {
-    if (!loaded || storageFailed) return;
+    if (!loaded || storageFailed || needsSetup) return;
     const subscription = AppState.addEventListener("change", (status) => {
       if (status === "active") void refresh();
     });
@@ -139,7 +147,7 @@ function TravelApp() {
       subscription.remove();
       clearInterval(timer);
     };
-  }, [state.receipts, loaded, storageFailed]);
+  }, [state.receipts, loaded, storageFailed, needsSetup]);
   useEffect(() => {
     if (!notice || storageFailed) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -173,6 +181,16 @@ function TravelApp() {
         <ActivityIndicator color={colors.primary} />
         <Text style={s.loadingText}>여행의 기록을 꺼내고 있어요</Text>
       </View>
+    );
+  if (needsSetup)
+    return (
+      <TripSetup
+        trip={state.trip}
+        onSave={(trip) => {
+          setState((prev) => ({ ...prev, trip }));
+          setNeedsSetup(false);
+        }}
+      />
     );
   return (
     <View style={s.outer}>
