@@ -20,6 +20,7 @@ import {
   validateReceipt,
   toWon,
   won,
+  demoStoreLocation,
 } from "../domain.mjs";
 import { fetchExchangeRate, recognizeReceipt } from "../api";
 import { Sheet, Button, Field, Label, Chip, Icon, colors } from "./ui";
@@ -133,7 +134,7 @@ export function ReceiptEditor({
     setTotal(minorText(data.totalMinor, data.currency));
     setDemo(isDemo);
     setLocation(null);
-    // 영수증에 찍힌 매장 주소를 그대로 채웁니다. 저장하면 DB의 가게(stores.address)에 들어가요.
+    // 영수증에 찍힌 매장 주소를 그대로 채웁니다. 저장하면 DB의 receipts.store_address에 들어가요.
     setAddress(data.address || "");
     const nextCurrency = data.currency || trip.currency;
     setRate(fallbackRate(nextCurrency));
@@ -262,7 +263,9 @@ export function ReceiptEditor({
         shareConsent: !demo,
         demo,
         address: address.trim(),
-        location,
+        // 시연에서는 실제 GPS 대신 신주쿠역 근처의 가짜 매장 좌표를 넣어 PAGE 2와 지도에 나오게 합니다.
+        location:
+          location || (demo ? null : demoStoreLocation(store, address)),
         recordedAt: new Date().toISOString(),
       };
       validateReceipt(receipt);
@@ -359,23 +362,23 @@ export function ReceiptEditor({
             onPress={() => {
               applyData(
                 {
-                  store: "마르셰 A · 시연 매장",
+                  store: "데일리마트 · 시연 매장",
                   date: today(),
-                  currency: "EUR",
+                  currency: "JPY",
                   category: "음식",
-                  totalMinor: 600,
+                  totalMinor: 636,
                   items: [
                     {
-                      name: "COCA COLA 50CL",
-                      nameKo: "코카콜라 500ml",
+                      name: "DORITOS ナチョチーズ 60G",
+                      nameKo: "도리토스 나초치즈 60g",
                       quantity: 2,
-                      unitMinor: 180,
+                      unitMinor: 158,
                     },
                     {
-                      name: "EVIAN 50CL",
-                      nameKo: "에비앙 500ml",
+                      name: "コカ・コーラ 500ML",
+                      nameKo: "코카콜라 500ml",
                       quantity: 2,
-                      unitMinor: 120,
+                      unitMinor: 160,
                     },
                   ],
                 },
@@ -563,7 +566,7 @@ export function ReceiptEditor({
         <Text style={s.consentText}>
           {demo
             ? "실제 영수증만 다른 여행자의 가격 비교 데이터가 돼요."
-            : "매장명·주소·상품명·개당 가격·구매일만 공유해요. 지도 위치는 매장 주소로 자동으로 찾아요. 사진, 개인 결제정보, 원화 환산액은 공유하지 않아요."}
+            : "매장명·주소·상품명·개당 가격·구매일만 공유해요. 지도 위치는 시연용으로 신주쿠역 근처의 가상 좌표를 써요. 사진, 개인 결제정보, 원화 환산액은 공유하지 않아요."}
         </Text>
       </View>
       {error ? (

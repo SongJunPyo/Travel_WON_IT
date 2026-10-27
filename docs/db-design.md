@@ -65,7 +65,7 @@ receipts 1 ── N receipt_items                 (영수증 삭제 시 품목�
 | currency        | CHAR(3)       |     | N    | EUR·USD·JPY·THB·KRW                                           |
 | total_minor     | BIGINT        |     | N    | 총 결제금액 (최소 통화 단위, JPY는 엔)                        |
 | rate            | DECIMAL(12,4) |     | N    | 적용 환율                                                     |
-| share_consent   | BOOLEAN       | IDX | N    | 가격 공유 동의. 동의하려면 좌표가 있어야 함                   |
+| share_consent   | BOOLEAN       | IDX | N    | 가격 공유 여부. 지금은 좌표가 있는 실제 영수증이면 자동으로 TRUE(팀 결정). 좌표가 없으면 FALSE |
 | created_at      | DATETIME(6)   |     | N    | 저장 시각. 같은 날짜의 최근 기록을 고를 때 씁니다              |
 
 인덱스: `(device_id, purchased_date)` — 내 가계부, `(share_consent, browse_category, currency)` — PAGE 2.
@@ -126,7 +126,7 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 
 **PAGE 2 — 상품 검색**: 카테고리 조건 대신 `(i.name_ko LIKE CONCAT('%', ?, '%') OR i.raw_name LIKE CONCAT('%', ?, '%'))`를 씁니다.
 
-서버 구현([PriceService.java](../src/main/java/com/wonit/travel/price/PriceService.java))은 H2 테스트와 같은 코드로 돌도록, DB에서는 공유 동의·통화·위치 사각형까지만 거르고 정확한 반경(하버사인 거리)·묶음·정렬은 Java에서 계산합니다. 결과는 위 쿼리와 같습니다. 검색어는 원문·한국어 이름의 부분 일치와 정규화한 이름의 부분 일치로 찾습니다.
+서버 구현([PriceService.java](../src/main/java/com/wonit/travel/price/PriceService.java))은 H2 테스트와 같은 코드로 돌도록, DB에서는 공유 여부·통화·카테고리·위치 사각형까지만 거르고 정확한 반경(하버사인 거리)·묶음·정렬은 Java에서 계산합니다. 결과는 위 쿼리와 같습니다. 검색어는 원문·한국어 이름의 부분 일치와 정규화한 이름의 부분 일치로 찾습니다.
 
 내 영수증도 PAGE 2에 나옵니다. 시연에서 "방금 찍은 영수증이 PAGE 2에 나타난다"를 보여 주기 위해서입니다.
 
@@ -145,5 +145,6 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 ## 6. 남은 작업
 
 1. ~~서버: 엔티티·저장소·서비스·API를 새 구조로 교체~~ (2026-10-27 완료. API는 README 참고)
-2. 앱: 가계부를 서버에서 읽고 저장, 시연 위치를 도쿄로, OCR에 PAGE 2 카테고리 추천 추가, 환율 소수 입력
+2. ~~앱: 가계부 서버 저장, 시연 위치 도쿄, 환율 소수 입력~~ (2026-10-28 완료. 가계부는 `PUT /ledger`로 통째 교체, `receipts.share_consent`는 매장 위치가 있는 실제 영수증이면 자동으로 TRUE)
+4. OCR에 PAGE 2 카테고리(`browse_category`) 추천 추가
 3. ~~신주쿠 주변 일본(JPY) 가데이터~~ (CSV 생성, 2026-10-28 `travel_won` 적재 완료. [sample-data/](../sample-data/README.md))
