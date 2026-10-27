@@ -147,30 +147,12 @@ export function summarize(receipts, budget) {
     percent: budget ? (total / budget) * 100 : 0,
   };
 }
-export function dailySpending(receipts, start, end) {
-  if (!validDate(start) || !validDate(end) || end < start) return [];
-  const totals = new Map();
-  for (const receipt of receipts) {
-    if (receipt.date < start || receipt.date > end) continue;
-    const day = totals.get(receipt.date) || { total: 0, count: 0 };
-    day.total += toWon(receipt.totalMinor, receipt.currency, receipt.rate);
-    day.count++;
-    totals.set(receipt.date, day);
-  }
-  const days = [];
-  const last = Date.parse(end);
-  for (let time = Date.parse(start); time <= last; time += 86_400_000) {
-    const date = new Date(time).toISOString().slice(0, 10);
-    days.push({ date, ...(totals.get(date) || { total: 0, count: 0 }) });
-  }
-  return days;
-}
 export function spendingInsight(summary) {
   if (!summary.total)
     return "첫 영수증을 기록하면 카테고리별 소비 비중을 살펴볼 수 있어요.";
   const top = [...summary.categories].sort((a, b) => b.ratio - a.ratio)[0];
   const diff = Math.abs(Math.round(top.delta));
-  return `이번 여행은 ${top.name}에 가장 많이 사용했어요. ${top.name} 비중은 ${Math.round(top.ratio)}%로, 사용자 평균${diff ? `보다 ${diff}%p ${top.delta > 0 ? "높아요" : "낮아요"}` : "과 같아요"}.`;
+  return `이번 여행은 ${top.name}에 가장 많이 사용했어요. ${top.name} 비중은 ${Math.round(top.ratio)}%로, 시연 평균${diff ? `보다 ${diff}%p ${top.delta > 0 ? "높아요" : "낮아요"}` : "과 같아요"}.`;
 }
 export function distanceMeters(a, b) {
   const rad = (n) => (n * Math.PI) / 180;

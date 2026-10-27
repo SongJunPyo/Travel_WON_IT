@@ -8,7 +8,6 @@ import {
   validateReceipt,
   normalizeProduct,
   summarize,
-  dailySpending,
   comparePrices,
   publicPrices,
   distanceMeters,
@@ -97,44 +96,7 @@ test("시연 영수증에서 예산, 소비 비중, 초과 금액을 계산한�
     Math.abs(sum.categories.reduce((s, c) => s + c.ratio, 0) - 100) < 0.00001,
   );
   assert.equal(summarize(state.receipts, 600000).remaining, -65120);
-  assert.match(spendingInsight(sum), /사용자 평균/);
-});
-test("여행 시작일과 종료일의 소비를 포함하고 빈 날짜도 0원으로 집계한다", () => {
-  const rows = [
-    receipt({ date: "2026-11-12", currency: "KRW", rate: 1, totalMinor: 9000 }),
-    receipt({ date: "2026-11-13", currency: "KRW", rate: 1, totalMinor: 10000 }),
-    receipt({ date: "2026-11-13", currency: "JPY", rate: 9, totalMinor: 1000 }),
-    receipt({ date: "2026-11-15", currency: "EUR", rate: 1600, totalMinor: 125 }),
-    receipt({ date: "2026-11-16", currency: "KRW", rate: 1, totalMinor: 8000 }),
-  ];
-  assert.deepEqual(dailySpending(rows, "2026-11-13", "2026-11-15"), [
-    { date: "2026-11-13", total: 19000, count: 2 },
-    { date: "2026-11-14", total: 0, count: 0 },
-    { date: "2026-11-15", total: 2000, count: 1 },
-  ]);
-});
-test("당일 여행과 영수증이 없는 여행의 날짜도 표시한다", () => {
-  assert.deepEqual(dailySpending([], "2026-11-13", "2026-11-13"), [
-    { date: "2026-11-13", total: 0, count: 0 },
-  ]);
-});
-test("날짜별 소비는 윤년과 연도 경계를 시간대에 관계없이 처리한다", () => {
-  assert.deepEqual(
-    dailySpending([], "2028-02-28", "2028-03-01").map((day) => day.date),
-    ["2028-02-28", "2028-02-29", "2028-03-01"],
-  );
-  assert.deepEqual(
-    dailySpending([], "2026-12-31", "2027-01-01").map((day) => day.date),
-    ["2026-12-31", "2027-01-01"],
-  );
-});
-test("유효하지 않거나 뒤집힌 여행 기간은 날짜별 소비를 만들지 않는다", () => {
-  for (const [start, end] of [
-    ["2026-11-15", "2026-11-13"],
-    ["2026-02-29", "2026-03-01"],
-    ["", "2026-11-13"],
-    ["2026-11-13", "날짜 오류"],
-  ]) assert.deepEqual(dailySpending([], start, end), []);
+  assert.match(spendingInsight(sum), /시연 평균/);
 });
 test("지출이 없으면 0 비율과 빈 상태 요약을 반환한다", () => {
   const summary = summarize([], 1000000);
