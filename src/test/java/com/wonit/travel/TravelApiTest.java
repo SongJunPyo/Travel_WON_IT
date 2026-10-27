@@ -184,6 +184,21 @@ class TravelApiTest {
         prices("&q=도리토스나초").andExpect(jsonPath("$.records.length()").value(1));
         prices("&q=콜라").andExpect(jsonPath("$.records.length()").value(0));
     }
+    @Test void 원문_매장명과_한국어_매장명을_저장하고_둘_다로_검색한다() throws Exception {
+        var sushi = receipt("すし酒場さしす", 35.6905, 139.7010, "2026-10-27", 220, true);
+        sushi.put("storeKo", "스시 사카바 사시스");
+        sushi.put("items", List.of(Map.of("name", "生ビール", "nameKo", "생맥주", "quantity", 1, "unitMinor", 220)));
+        save(tokenA, List.of(sushi, receipt())).andExpect(status().isOk());
+        ledger(tokenA).andExpect(jsonPath("$.state.receipts[0].store").value("すし酒場さしす"))
+                .andExpect(jsonPath("$.state.receipts[0].storeKo").value("스시 사카바 사시스"))
+                .andExpect(jsonPath("$.state.receipts[1].storeKo").isEmpty());
+        for (String q : List.of("스시", "사카바사시스", "さしす", "生ビール", "생맥주"))
+            prices("&q=" + q).andExpect(jsonPath("$.records.length()").value(1))
+                    .andExpect(jsonPath("$.records[0].store").value("すし酒場さしす"))
+                    .andExpect(jsonPath("$.records[0].storeKo").value("스시 사카바 사시스"));
+        var tooLong = receipt(); tooLong.put("storeKo", "가".repeat(121));
+        save(tokenA, List.of(tooLong)).andExpect(status().isBadRequest());
+    }
     @Test void 공개_조회는_기기_정보와_추가필드를_저장하거나_노출하지_않는다() throws Exception {
         var body = receipt(); body.put("image", "test-private-photo"); body.put("cardNumber", "test-private-value");
         save(tokenA, List.of(body)).andExpect(status().isOk());
@@ -226,10 +241,11 @@ class TravelApiTest {
         return new MockMultipartFile("file", "receipt.png", "image/png", new byte[] {1, 2, 3});
     }
     @Test void OCR은_상품별_수량과_단가를_최소단위로_돌려준다() throws Exception {
-        when(reader.read(any(), eq("image/png"))).thenReturn(new RecognizedReceipt("테스트 매장", "99 Rue de Rivoli\n75001 Paris", "2026-10-27", "eur", "음식",
+        when(reader.read(any(), eq("image/png"))).thenReturn(new RecognizedReceipt("テスト店", "테스트 매장", "99 Rue de Rivoli\n75001 Paris", "2026-10-27", "eur", "음식",
                 "3.60", List.of(new RecognizedReceipt.Item("COCA COLA 50CL", "코카콜라 500ml", 2, "1.80"))));
         mvc.perform(multipart("/api/receipts/ocr").file(png())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.receipt.currency").value("EUR"))
+                .andExpect(jsonPath("$.receipt.store").value("テスト店")).andExpect(jsonPath("$.receipt.storeKo").value("테스트 매장"))
                 .andExpect(jsonPath("$.receipt.address").value("99 Rue de Rivoli, 75001 Paris"))
                 .andExpect(jsonPath("$.receipt.totalMinor").value(360))
                 .andExpect(jsonPath("$.receipt.items[0].name").value("COCA COLA 50CL"))
@@ -238,7 +254,7 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.receipt.items[0].quantity").value(2));
     }
     @Test void 상품을_읽지못한_영수증은_502_OCR_FAILED다() throws Exception {
-        when(reader.read(any(), any())).thenReturn(new RecognizedReceipt(null, null, null, "EUR", null, "3.60", new ArrayList<>()));
+        when(reader.read(any(), any())).thenReturn(new RecognizedReceipt(null, null, null, null, "EUR", null, "3.60", new ArrayList<>()));
         mvc.perform(multipart("/api/receipts/ocr").file(png())).andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.errors[0].code").value("OCR_FAILED"));
     }

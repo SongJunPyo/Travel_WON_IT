@@ -75,7 +75,8 @@ public class LedgerService {
         return new TripData(t.city().strip(), t.country().strip(), t.start(), t.end(), t.budget(), t.currency(), t.rate());
     }
     private ReceiptData validate(ReceiptData r) {
-        if (r == null || !text(r.store(), 120) || (r.address() != null && r.address().strip().length() > 250)
+        if (r == null || !text(r.store(), 120) || (r.storeKo() != null && r.storeKo().strip().length() > 120)
+                || (r.address() != null && r.address().strip().length() > 250)
                 || !date(r.date()) || !in(CURRENCIES, r.currency()) || !in(LEDGER_CATEGORIES, r.category())
                 || (!blank(r.browseCategory()) && !in(BROWSE_CATEGORIES, r.browseCategory())) || !text(r.id(), 150))
             throw new ApiException(400, "매장명·구매일·통화·카테고리를 확인해 주세요.");
@@ -96,7 +97,8 @@ public class LedgerService {
             throw new ApiException(400, "상품 합계와 총 결제금액이 달라요. 할인·세금은 상품 가격에 반영해 주세요.");
         List<ReceiptData.Item> items = r.items().stream().map(i -> new ReceiptData.Item(i.name().strip(),
                 blank(i.nameKo()) ? null : i.nameKo().strip(), i.quantity(), i.unitMinor())).toList();
-        return new ReceiptData(r.id(), r.store().strip(), r.address() == null ? "" : r.address().strip(), location, r.category(),
+        return new ReceiptData(r.id(), r.store().strip(), blank(r.storeKo()) ? null : r.storeKo().strip(),
+                r.address() == null ? "" : r.address().strip(), location, r.category(),
                 blank(r.browseCategory()) ? null : r.browseCategory(), r.date(), r.currency(), r.rate(), r.totalMinor(),
                 Boolean.TRUE.equals(r.shareConsent()) && location != null, false, items, r.recordedAt());
     }

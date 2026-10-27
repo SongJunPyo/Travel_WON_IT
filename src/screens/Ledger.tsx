@@ -15,6 +15,7 @@ import {
   won,
   money,
   toWon,
+  storeLabel,
 } from "../domain.mjs";
 import { colors, Icon, Chip, Empty } from "../components/ui";
 import type { Receipt, TravelState } from "../types";
@@ -282,7 +283,7 @@ export function Ledger({
               <Pressable
                 key={r.id}
                 accessibilityRole="button"
-                accessibilityLabel={`${r.store} 영수증 상세`}
+                accessibilityLabel={`${storeLabel(r)} 영수증 상세`}
                 onPress={() => onReceipt(r)}
                 style={s.receiptRow}
                 testID={`receipt-${r.id}`}
@@ -294,7 +295,7 @@ export function Ledger({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={s.store}>
-                    {r.store}
+                    {storeLabel(r)}
                   </Text>
                   <Text style={s.receiptMeta}>
                     {r.date.slice(5).replace("-", ".")} · {r.category}

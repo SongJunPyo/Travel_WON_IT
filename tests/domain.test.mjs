@@ -11,6 +11,8 @@ import {
   distanceMeters,
   DEMO_LOCATION,
   demoStoreLocation,
+  storeLabel,
+  storeOriginal,
   fingerprint,
   validDate,
   spendingInsight,
@@ -165,6 +167,30 @@ test("원어와 한국어 상품명을 함께 저장하고 한국어 이름 길�
       ...r,
       items: [{ ...r.items[0], nameKo: "가".repeat(161) }],
     }),
+  );
+});
+test("원문·한국어 매장명과 PAGE 2 카테고리를 검사하고 화면에는 한국어 매장명을 먼저 보여 준다", () => {
+  const r = receipt({
+    store: "すし酒場さしす",
+    storeKo: "스시 사카바 사시스",
+    browseCategory: "식당",
+  });
+  assert.equal(validateReceipt(r).browseCategory, "식당");
+  assert.equal(storeLabel(r), "스시 사카바 사시스");
+  assert.equal(storeOriginal(r), "すし酒場さしす");
+  assert.equal(storeLabel({ store: "카페 모쿠" }), "카페 모쿠");
+  assert.equal(storeOriginal({ store: "카페 모쿠", storeKo: "카페 모쿠" }), "");
+  assert.equal(
+    validateReceipt(receipt({ browseCategory: null })).browseCategory,
+    null,
+  );
+  assert.throws(
+    () => validateReceipt(receipt({ browseCategory: "카페" })),
+    /카테고리/,
+  );
+  assert.throws(
+    () => validateReceipt(receipt({ storeKo: "가".repeat(121) })),
+    /한국어 매장명/,
   );
 });
 test("시연 가계부는 도쿄·JPY이고 시연 위치는 신주쿠역이다", () => {

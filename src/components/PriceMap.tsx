@@ -8,7 +8,7 @@ import {
   Linking,
 } from "react-native";
 import { colors, Icon } from "./ui";
-import { money } from "../domain.mjs";
+import { money, storeLabel } from "../domain.mjs";
 import type { Coordinate, Price } from "../types";
 
 // Mapbox 공개 토큰(pk.)이 있으면 Mapbox 타일을, 없으면 OpenStreetMap 타일을 사용합니다.
@@ -105,7 +105,7 @@ export function PriceMap({
         return (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${p.store} ${money(p.unitMinor, p.currency)}`}
+            accessibilityLabel={`${storeLabel(p)} ${money(p.unitMinor, p.currency)}`}
             key={p.id}
             onPress={() => onSelect(p.id)}
             style={[

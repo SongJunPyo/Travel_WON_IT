@@ -73,7 +73,8 @@
 - [x] DB 설계와 `travel_won` 테이블 생성 ([docs/db-design.md](docs/db-design.md))
 - [x] 서버를 새 DB 구조로 전환 (가계부 저장·조회 API, PAGE 2 카테고리·검색 API)
 - [x] 앱과 서버 연결: 가계부 통째 저장(`PUT /ledger`), PAGE 2 서버 조회, 시연 위치 신주쿠·JPY, 시연용 매장 좌표, 브라우저 검증 수정
-- [ ] OCR에 PAGE 2 카테고리 추천 추가
+- [x] 영수증 저장 화면에 PAGE 2 카테고리 선택칸 (AI 자동 추천은 하지 않기로 함)
+- [x] 원문·한국어 매장명 저장(`store_name_ko`)과 매장명 검색
 - [x] 신주쿠 주변 일본(JPY) 가데이터 CSV ([sample-data/](sample-data/README.md))
 - [x] 가데이터 `travel_won` 적재 (2026-10-28)
 - [x] 상품명 검색(예: 도리토스)을 실제 적재 데이터로 확인

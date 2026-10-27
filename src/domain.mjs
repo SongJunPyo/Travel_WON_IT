@@ -75,9 +75,20 @@ export function validDate(value) {
     new Date(value).toISOString().slice(0, 10) === value
   );
 }
+// 화면에는 한국어 매장명을 먼저 보여 주고, 원문이 다르면 함께 보여 줍니다.
+export const storeLabel = (r) => r.storeKo?.trim() || r.store;
+export const storeOriginal = (r) =>
+  r.storeKo?.trim() && r.storeKo.trim() !== r.store ? r.store : "";
 export function validateReceipt(receipt) {
   if (!receipt.store?.trim() || receipt.store.length > 120)
     throw new Error("매장명을 입력해 주세요.");
+  if (receipt.storeKo != null && String(receipt.storeKo).length > 120)
+    throw new Error("한국어 매장명은 120자 이하로 입력해 주세요.");
+  if (
+    receipt.browseCategory != null &&
+    !BROWSE_CATEGORIES.some((c) => c.name === receipt.browseCategory)
+  )
+    throw new Error("주변 가격 비교 카테고리를 확인해 주세요.");
   if (!validDate(receipt.date))
     throw new Error("구매일을 YYYY-MM-DD 형식으로 입력해 주세요.");
   if (
