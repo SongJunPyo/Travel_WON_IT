@@ -1,0 +1,324 @@
+{
+  "formatVersion": 1,
+  "kind": "repository-schema-and-synthetic-data",
+  "liveDatabaseDump": false,
+  "label": "2026-10-28-four-tables",
+  "createdAt": "2026-10-27T21:58:46.093Z",
+  "timezone": "Asia/Seoul",
+  "sourceBranch": "jpyo",
+  "sourceCommit": "13b5c6d165bc9e7012026aa986bb1339579b445a",
+  "workingTreeDirty": true,
+  "page2": {
+    "center": {
+      "latitude": 35.6896,
+      "longitude": 139.7006
+    },
+    "radiusMeters": 3000,
+    "currency": "JPY",
+    "visibleReceipts": 4146,
+    "distinctNormalizedProducts": 150
+  },
+  "tables": {
+    "devices": {
+      "rows": 300,
+      "csvColumns": [
+        "id",
+        "token_hash",
+        "is_sample",
+        "created_at"
+      ],
+      "schema": {
+        "id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": true
+        },
+        "token_hash": {
+          "type": "CHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "is_sample": {
+          "type": "BOOLEAN",
+          "nullable": false,
+          "defaulted": true
+        },
+        "created_at": {
+          "type": "DATETIME",
+          "nullable": false,
+          "defaulted": true
+        }
+      }
+    },
+    "trips": {
+      "rows": 300,
+      "csvColumns": [
+        "id",
+        "device_id",
+        "city",
+        "country",
+        "start_date",
+        "end_date",
+        "budget_krw",
+        "currency",
+        "rate"
+      ],
+      "schema": {
+        "id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": true
+        },
+        "device_id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "city": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "country": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "start_date": {
+          "type": "DATE",
+          "nullable": false,
+          "defaulted": false
+        },
+        "end_date": {
+          "type": "DATE",
+          "nullable": false,
+          "defaulted": false
+        },
+        "budget_krw": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "currency": {
+          "type": "CHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "rate": {
+          "type": "DECIMAL",
+          "nullable": false,
+          "defaulted": false
+        }
+      }
+    },
+    "receipts": {
+      "rows": 8152,
+      "csvColumns": [
+        "id",
+        "device_id",
+        "trip_id",
+        "store_name",
+        "store_address",
+        "latitude",
+        "longitude",
+        "ledger_category",
+        "browse_category",
+        "purchased_date",
+        "currency",
+        "total_minor",
+        "rate",
+        "share_consent",
+        "created_at"
+      ],
+      "schema": {
+        "id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": true
+        },
+        "device_id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "trip_id": {
+          "type": "BIGINT",
+          "nullable": true,
+          "defaulted": false
+        },
+        "store_name": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "store_name_ko": {
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaulted": false
+        },
+        "store_address": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": true
+        },
+        "latitude": {
+          "type": "DOUBLE",
+          "nullable": true,
+          "defaulted": false
+        },
+        "longitude": {
+          "type": "DOUBLE",
+          "nullable": true,
+          "defaulted": false
+        },
+        "ledger_category": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "browse_category": {
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaulted": false
+        },
+        "purchased_date": {
+          "type": "DATE",
+          "nullable": false,
+          "defaulted": false
+        },
+        "currency": {
+          "type": "CHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "total_minor": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "rate": {
+          "type": "DECIMAL",
+          "nullable": false,
+          "defaulted": false
+        },
+        "share_consent": {
+          "type": "BOOLEAN",
+          "nullable": false,
+          "defaulted": true
+        },
+        "created_at": {
+          "type": "DATETIME",
+          "nullable": false,
+          "defaulted": true
+        }
+      }
+    },
+    "receipt_items": {
+      "rows": 17262,
+      "csvColumns": [
+        "id",
+        "receipt_id",
+        "raw_name",
+        "name_ko",
+        "normalized_name",
+        "quantity",
+        "unit_minor"
+      ],
+      "schema": {
+        "id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": true
+        },
+        "receipt_id": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "raw_name": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "name_ko": {
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaulted": false
+        },
+        "normalized_name": {
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaulted": false
+        },
+        "quantity": {
+          "type": "INT",
+          "nullable": false,
+          "defaulted": false
+        },
+        "unit_minor": {
+          "type": "BIGINT",
+          "nullable": false,
+          "defaulted": false
+        }
+      }
+    }
+  },
+  "sourceSchemaNotes": [
+    "CSV에 없는 nullable 열(store_name_ko 등)은 복구 시 기본값 NULL입니다.",
+    "실제 DB의 추가 영수증·AUTO_INCREMENT·트리거·권한은 별도 라이브 덤프가 필요합니다."
+  ],
+  "files": {
+    "docs/db-schema-mysql.sql": {
+      "bytes": 4329,
+      "sha256": "1a4cfb48b6b51d828bf2cb2f2ac92002ee389bfa3c5d689c86f3b963c173ec09"
+    },
+    "docs/db-design.md": {
+      "bytes": 14883,
+      "sha256": "2f0d1a349d283a90f9c7697cbcfb2aeac26f755ae5e97bc818484164a3473a8f"
+    },
+    "sample-data/README.md": {
+      "bytes": 5157,
+      "sha256": "f04bbe5b33bd0a0b63b6ea6d0b58f08d34272bf49f63bc5a30ea8dd9b024aeb4"
+    },
+    "sample-data/devices.csv": {
+      "bytes": 29327,
+      "sha256": "6a42431ed4f35fa9d5b8a66174a018fe1617625a07a854ba5d71ea71cffc0ec5"
+    },
+    "sample-data/trips.csv": {
+      "bytes": 18694,
+      "sha256": "923cd8492eb9a6996097db664260ba7b920b61a7457de73ec7914897c9f117f1"
+    },
+    "sample-data/receipts.csv": {
+      "bytes": 1467894,
+      "sha256": "3ae3954d76916817074bd3b677f7ead7900cd95924c92b65c081dae82b137d7f"
+    },
+    "sample-data/receipt_items.csv": {
+      "bytes": 1429977,
+      "sha256": "f5a6cb111f35f9e8a47a3c5e4004810260066b694bc36c0a113f41c52ffba0e9"
+    },
+    "scripts/sample-data.mjs": {
+      "bytes": 31066,
+      "sha256": "721927eb00c576be3e2c35630328af3e5589d8c7d1e90ac6b7f3848d5d83a562"
+    },
+    "scripts/db-snapshot.mjs": {
+      "bytes": 18161,
+      "sha256": "4a071cb3a5420db0fd04b5040a1642a4a7eb8fc3495c1bcac489181be12e5e3a"
+    },
+    "src/domain.mjs": {
+      "bytes": 11856,
+      "sha256": "d01779df7db3f7f23c3b3f760c8970fcc46a666f594b0f0a6f56afb7ead36df4"
+    },
+    "src/main/resources/application.properties": {
+      "bytes": 1497,
+      "sha256": "a4c9423d513e46ada2b49d1bcc5a9a022d18f9e83625b26b8dc6c1732fa8caa9"
+    },
+    "src/main/resources/application-mysql.properties": {
+      "bytes": 657,
+      "sha256": "9fbdd4daac9e120ec53edf7bf8ee245110791ec13eff0a52d971ad34a445b4b1"
+    },
+    "restore/sample-data.sql.gz": {
+      "bytes": 683665,
+      "sha256": "d53fcb0a3db74afe0f01595eabdf7712b6dd7a83e60a62ef5595c430ccea869d"
+    }
+  }
+}
