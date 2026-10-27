@@ -60,6 +60,9 @@ class TravelApiTest {
     @Test void 서버_상태() throws Exception {
         mvc.perform(get("/health")).andExpect(status().isOk()).andExpect(jsonPath("$.ok").value(true));
     }
+    @Test void 없는_주소는_서버_오류가_아닌_404로_응답한다() throws Exception {
+        mvc.perform(get("/")).andExpect(status().isNotFound()).andExpect(jsonPath("$.error").exists());
+    }
     @Test void 상품_가격을_DB에_저장하고_정규화된_이름으로_조회한다() throws Exception {
         save(tokenA, row());
         mvc.perform(get("/prices")).andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(1))

@@ -57,11 +57,19 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 
 ## 로컬에서 실행하기
 
-API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 시연 가격 비교, 카테고리 둘러보기를 사용할 수 있습니다. 사진 분석과 가격 공유에는 API 서버가 필요합니다.
+이 프로젝트는 **화면(앱)**과 **API 서버**를 따로 실행합니다. 화면만으로도 가계부 기록·수정·삭제, 소비 시각화, 시연 가격 비교, 카테고리 둘러보기를 쓸 수 있습니다. 사진 분석과 가격 공유를 쓸 때만 API 서버를 함께 켭니다.
+
+| 무엇      | 명령             | 주소                                                     | 화면     |
+| --------- | ---------------- | -------------------------------------------------------- | -------- |
+| 웹 화면   | `npm run web`    | [http://localhost:8081](http://localhost:8081)           | 있음     |
+| 휴대폰 앱 | `npm start`      | Expo Go로 QR 코드 스캔                                   | 있음     |
+| API 서버  | `npm run server` | `http://localhost:8787` (상태 확인: `/health`)           | **없음** |
+
+> `npm run dev`는 이 프로젝트에 없습니다. 실행하면 `Missing script: "dev"` 오류가 납니다. `npm run dev`는 이전 프로젝트 `my-hackathon`(Vite, 5173 포트)의 명령입니다.
 
 1. **실행 환경 확인**
 
-   앱은 Node.js **22.13 이상**과 npm, API 서버는 **Java 21**이 필요합니다. Gradle은 포함된 `./gradlew`를 사용합니다.
+   앱은 Node.js **22.13 이상**과 npm, API 서버는 **JDK 21**이 필요합니다. 다른 버전의 JDK만 설치돼 있으면 서버를 빌드할 수 없습니다. Gradle은 포함된 `./gradlew`를 쓰므로 따로 설치하지 않습니다.
 
    ```bash
    node --version
@@ -71,15 +79,19 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
 
 2. **프로젝트 폴더로 이동하고 의존성 설치**
 
-   아래 명령은 프로젝트 루트인 `travel_WONIT/`에서 실행합니다. 현재 위치가 상위 `98_HACKATHON/`이라면 먼저 `cd travel_WONIT`을 실행합니다.
+   아래 명령은 모두 프로젝트 루트인 `travel_WONIT/`에서 실행합니다. 현재 위치가 상위 `98_HACKATHON/`이라면 먼저 `cd travel_WONIT`을 실행합니다.
 
    ```bash
    npm ci
    ```
 
-3. **환경 변수 설정**
+3. **`.env` 만들기**
 
-   [`.env.example`](.env.example)을 참고해 프로젝트 루트의 `.env`에 값을 넣습니다. `.env`는 Git에서 제외됩니다. 서버는 이 파일을 Spring 설정으로 직접 읽고, OS 환경변수도 사용할 수 있습니다.
+   `.env`는 Git에 올라가지 않으므로 clone한 뒤 직접 만듭니다. 없어도 화면은 실행되지만, 사진 분석과 Mapbox 지도를 쓰려면 필요합니다. 키 값은 팀 안에서 따로 전달받습니다.
+
+   ```bash
+   cp .env.example .env      # Windows: copy .env.example .env
+   ```
 
    | 변수                       | 용도                                                                                             | 필요한 경우             |
    | -------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------- |
@@ -88,30 +100,34 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
    | `PORT`                     | API 서버 포트. 기본값 `8787`                                                                     | 선택                    |
    | `EXPO_PUBLIC_API_URL`      | 앱이 호출할 API 주소. 기본값 `http://localhost:8787`, Android 에뮬레이터는 `http://10.0.2.2:8787` | 실기기, 다른 주소       |
    | `EXPO_PUBLIC_MAPBOX_TOKEN` | Mapbox 지도 공개 토큰(`pk.`로 시작). 없으면 OpenStreetMap 지도를 씁니다                          | 선택                    |
-   | `ALLOWED_ORIGINS`          | 웹에서 API를 호출할 수 있는 origin(쉼표로 구분)                                                  | 웹을 다른 포트로 열 때 |
+   | `ALLOWED_ORIGINS`          | 웹에서 API를 호출할 수 있는 origin(쉼표로 구분)                                                  | 웹을 다른 주소로 열 때 |
 
-   `EXPO_PUBLIC_`으로 시작하는 값은 앱 번들에 포함되어 누구나 볼 수 있습니다. 비밀 키는 넣지 마세요. 값을 바꾼 뒤에는 Expo 개발 서버를 다시 시작합니다.
+   `EXPO_PUBLIC_`으로 시작하는 값은 앱 번들에 포함되어 누구나 볼 수 있으니 비밀 키를 넣지 않습니다. `EXPO_PUBLIC_` 값을 바꾸면 Expo(`npm run web`·`npm start`)를, 나머지 값을 바꾸면 API 서버를 다시 시작합니다.
 
-4. **API 서버 실행** (사진 분석·가격 공유를 쓸 때)
-
-   별도의 터미널에서 실행합니다. 기본 주소는 `http://localhost:8787`이고, `/health`로 상태를 확인할 수 있습니다.
-
-   ```bash
-   npm run server
-   # 같은 명령: ./gradlew bootRun (Windows: gradlew.bat bootRun)
-   ```
-
-5. **앱 실행**
-
-   브라우저에서 확인할 때:
+4. **웹 화면 실행**
 
    ```bash
    npm run web
    ```
 
-   기본 주소는 [http://localhost:8081](http://localhost:8081)입니다. 위치 기능은 localhost 또는 HTTPS에서만 동작합니다.
+   브라우저에서 [http://localhost:8081](http://localhost:8081)을 엽니다. 위치 기능은 localhost 또는 HTTPS에서만 동작합니다.
 
-   휴대폰에서 확인할 때:
+   8081 포트를 이미 다른 프로그램이 쓰고 있으면 Expo가 다른 포트를 쓸지 묻습니다. 다른 포트로 열면 API 서버 연결이 막힙니다(CORS). 8081을 쓰는 프로그램을 끄거나, 새 주소를 `ALLOWED_ORIGINS`에 추가하고 API 서버를 다시 시작합니다.
+
+5. **API 서버 실행** (사진 분석·가격 공유를 쓸 때)
+
+   웹 화면과 **별도의 터미널**에서 실행합니다.
+
+   ```bash
+   npm run server            # macOS·Linux
+   .\gradlew.bat bootRun     # Windows (npm run server는 Windows에서 동작하지 않습니다)
+   ```
+
+   처음 실행할 때는 Gradle과 라이브러리를 내려받느라 시간이 걸립니다. 터미널에 `Started TravelWonhaeApplication`이 나오면 준비된 것입니다.
+
+   이 서버에는 **화면이 없습니다.** 브라우저로 [http://localhost:8787/health](http://localhost:8787/health)를 열어 `"ok":true`가 보이면 정상입니다. `http://localhost:8787` 자체를 열면 "요청한 주소나 방식을 확인해 주세요"라는 오류가 나오는데, 이것도 정상입니다. 앱 화면은 4단계의 8081 주소에서 봅니다.
+
+6. **휴대폰에서 실행** (선택)
 
    ```bash
    npm start
@@ -119,9 +135,24 @@ API 키와 서버 없이도 가계부 기록·수정·삭제, 소비 시각화, 
 
    휴대폰과 개발 컴퓨터를 같은 Wi-Fi에 연결하고, Expo SDK 58을 지원하는 Expo Go로 터미널의 QR 코드를 스캔합니다. 자세한 순서는 [iPhone에서 시연하기](#iphone에서-시연하기)를 참고합니다.
 
-6. **종료**
+7. **종료**
 
    각 터미널에서 `Ctrl + C`를 누릅니다.
+
+### 자주 막히는 곳
+
+| 증상                                                         | 원인과 해결                                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev` → `Missing script: "dev"`                      | 이 프로젝트의 웹 화면 명령은 `npm run web`입니다.                                                                                                                            |
+| `localhost:8787`을 열었더니 화면 대신 오류 문구(JSON)가 보임 | 정상입니다. API 서버라 화면이 없습니다. 화면은 `npm run web` → `http://localhost:8081`, 서버 상태는 `/health`로 확인합니다.                                                  |
+| Windows에서 `npm run server` → `'.' is not recognized`       | Windows에서는 `.\gradlew.bat bootRun`을 실행합니다.                                                                                                                            |
+| `./gradlew: Permission denied`                               | ZIP으로 받으면 실행 권한이 빠질 수 있습니다. `chmod +x gradlew`를 한 번 실행합니다.                                                                                          |
+| 서버 빌드 중 Java 21을 찾지 못한다는 오류                   | JDK 21을 설치합니다. `java -version`이 다른 버전이어도 JDK 21이 설치돼 있으면 Gradle이 찾아 씁니다.                                                                          |
+| `Port 8787 was already in use`                               | 다른 터미널에서 서버가 이미 실행 중입니다. 그 서버를 끄거나, `.env`의 `PORT`와 `EXPO_PUBLIC_API_URL`을 함께 바꿉니다.                                                        |
+| 화면에 "서버에 연결하지 못했어요"                            | API 서버가 꺼져 있거나, 웹을 8081이 아닌 주소로 열었습니다(CORS). 서버를 켜고, 다른 주소라면 `ALLOWED_ORIGINS`에 추가한 뒤 서버를 다시 시작합니다.                           |
+| 사진 분석 시 "AI 분석 키가 설정되지 않았어요"                | `.env`에 `OPENAI_API_KEY`를 넣고 API 서버를 다시 시작합니다.                                                                                                                 |
+| 지도가 Mapbox가 아닌 OpenStreetMap으로 보임                  | `.env`에 `EXPO_PUBLIC_MAPBOX_TOKEN`이 없습니다. 넣은 뒤 Expo를 다시 시작합니다.                                                                                              |
+| 휴대폰에서 서버에 연결하지 못함                              | `EXPO_PUBLIC_API_URL`이 `localhost`이면 휴대폰 자기 자신을 가리킵니다. Mac의 LAN 주소로 바꾸고 Expo를 다시 시작합니다.                                                       |
 
 ## iPhone에서 시연하기
 
