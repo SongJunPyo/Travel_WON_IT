@@ -29,7 +29,7 @@ public class ClaudeReceiptReader implements ReceiptReader {
               null if no address is printed. Never invent or look up an address.
             - date: the purchase date as YYYY-MM-DD.
             - currency: one of EUR, USD, JPY, THB, KRW, judged from symbols or the country. null if unsure.
-            - category: one of 숙박, 쇼핑, 음식, 교통, 관광, 기타.
+            - category: one of 음식, 쇼핑, 숙박, 교통, 관광, 기타.
             - total: the grand total paid as a plain decimal string with a dot, e.g. "12.40".
               Do not change the printed total to fit the items.
             - items: every purchased product.
@@ -95,7 +95,7 @@ public class ClaudeReceiptReader implements ReceiptReader {
             @JsonPropertyDescription("Shop street address as printed, null if absent") String address,
             @JsonPropertyDescription("Purchase date, YYYY-MM-DD") String date,
             @JsonPropertyDescription("EUR, USD, JPY, THB or KRW") String currency,
-            @JsonPropertyDescription("숙박, 쇼핑, 음식, 교통, 관광 or 기타") String category,
+            @JsonPropertyDescription("음식, 쇼핑, 숙박, 교통, 관광 or 기타") String category,
             @JsonPropertyDescription("Grand total as a decimal string with a dot, e.g. 12.40") String total,
             @JsonPropertyDescription("Every purchased product") List<ItemFields> items) {
     }

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import {
-  BROWSE_CATEGORIES,
+  CATEGORIES,
   BROWSE_SORTS,
   DEMO_LOCATION,
   money,
@@ -24,6 +24,15 @@ import { colors, Icon, Chip, Empty, Button, Sheet } from "../components/ui";
 import { PriceMap } from "../components/PriceMap";
 import type { Coordinate, Price } from "../types";
 
+// 흰 글자가 잘 보이도록 가계부 차트 색보다 진한 타일 색을 씁니다.
+const TILE_COLORS: Record<string, string> = {
+  음식: "#D9653B",
+  쇼핑: "#C8508A",
+  숙박: "#0067AC",
+  교통: "#47617A",
+  관광: "#2F6FB5",
+  기타: "#6B5BC4",
+};
 export function Compare({
   version,
   onRefresh,
@@ -96,7 +105,102 @@ export function Compare({
   const shown = rows;
   const selectedPrice = shown.find((p) => p.id === selected);
   const categoryIcon =
-    BROWSE_CATEGORIES.find((c) => c.name === category)?.icon || "bag";
+    CATEGORIES.find((c) => c.name === category)?.icon || "bag";
+  // 고른 카테고리의 결과는 그 타일이 있는 줄 바로 아래에 펼칩니다.
+  const categoryIndex = CATEGORIES.findIndex((c) => c.name === category);
+  const resultsAfter =
+    categoryIndex < 0
+      ? -1
+      : Math.min(Math.floor(categoryIndex / 2) * 2 + 1, CATEGORIES.length - 1);
+  const categoryResults = category ? (
+    <View style={s.categoryResults} testID="category-results">
+      {loadError ? (
+        <Text accessibilityRole="alert" style={s.error} testID="prices-error">
+          {loadError}
+        </Text>
+      ) : null}
+      {loading && (
+        <ActivityIndicator
+          color={colors.primary}
+          style={{ marginBottom: 12 }}
+          testID="prices-loading"
+        />
+      )}
+      <View style={[s.resultsHead, { marginTop: 6 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={s.sectionTitle}>{category}</Text>
+          <Text style={s.count}>{browsed.length}</Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="카테고리 선택 해제"
+          onPress={() => chooseCategory(category)}
+          style={{ padding: 6 }}
+        >
+          <Icon name="close" size={16} color={colors.muted} />
+        </Pressable>
+      </View>
+      <View style={s.sorts}>
+        {BROWSE_SORTS.map((x) => (
+          <Chip
+            key={x.name}
+            title={x.ready ? x.name : `${x.name} · 준비 중`}
+            active={categorySort === x.name}
+            disabled={!x.ready}
+            onPress={() => setCategorySort(x.name)}
+            testID={`browse-sort-${x.name}`}
+          />
+        ))}
+      </View>
+      <Text style={s.productTitle}>
+        다른 여행자의 영수증 기록
+        <Text style={s.unitNote}> · 최근 구매가격 · {effectiveCurrency}</Text>
+      </Text>
+      {browsed.length ? (
+        browsed.map((p) => (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${storeLabel(p)} 매장 선택`}
+            onPress={() => setSelected(p.id)}
+            key={p.id}
+            style={[
+              s.storeCard,
+              selected === p.id && { borderColor: colors.primary },
+            ]}
+            testID={`browse-${p.id}`}
+          >
+            <View style={s.storeTop}>
+              <View style={s.storeIcon}>
+                <Icon name={categoryIcon} color="#819CB2" size={22} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.storeName}>{storeLabel(p)}</Text>
+                {storeOriginal(p) ? (
+                  <Text style={s.storeOriginal}>{storeOriginal(p)}</Text>
+                ) : null}
+                <Text style={s.storeDistance}>{p.product}</Text>
+              </View>
+              <Text style={s.price}>{money(p.unitMinor, p.currency)}</Text>
+            </View>
+            <View style={s.storeBottom}>
+              <Text style={s.purchaseDate}>
+                최근 구매일 {p.date.replace(/-/g, ".")}
+              </Text>
+              <Text style={s.purchaseCount}>구매 {p.count}회</Text>
+            </View>
+          </Pressable>
+        ))
+      ) : (
+        <View style={s.emptyCard}>
+          <Empty
+            icon="search"
+            title="아직 이 카테고리의 공유 기록이 없어요"
+            detail="다른 여행자의 영수증 기록이 쌓이면 여기에 표시돼요."
+          />
+        </View>
+      )}
+    </View>
+  ) : null;
   async function locate() {
     setLocating(true);
     setMessage("");
@@ -189,28 +293,30 @@ export function Compare({
         <Text style={s.browseCaption}>다른 여행자의 영수증 기록</Text>
       </View>
       <View style={s.grid}>
-        {BROWSE_CATEGORIES.map((c) => {
+        {CATEGORIES.map((c, i) => {
           const active = category === c.name;
           return (
-            <Pressable
-              key={c.name}
-              accessibilityRole="button"
-              accessibilityLabel={`${c.name} 카테고리`}
-              accessibilityState={{ selected: active }}
-              onPress={() => chooseCategory(c.name)}
-              testID={`category-${c.name}`}
-              style={[
-                s.tile,
-                { backgroundColor: c.color },
-                active && s.tileActive,
-                !!category && !active && { opacity: 0.5 },
-              ]}
-            >
-              <View style={{ alignSelf: "flex-end" }}>
-                <Icon name={c.icon} color="#fff" size={22} />
-              </View>
-              <Text style={s.tileText}>{c.name}</Text>
-            </Pressable>
+            <React.Fragment key={c.name}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${c.name} 카테고리`}
+                accessibilityState={{ selected: active }}
+                onPress={() => chooseCategory(c.name)}
+                testID={`category-${c.name}`}
+                style={[
+                  s.tile,
+                  { backgroundColor: TILE_COLORS[c.name] },
+                  active && s.tileActive,
+                  !!category && !active && { opacity: 0.5 },
+                ]}
+              >
+                <View style={{ alignSelf: "flex-end" }}>
+                  <Icon name={c.icon} color="#fff" size={22} />
+                </View>
+                <Text style={s.tileText}>{c.name}</Text>
+              </Pressable>
+              {i === resultsAfter && categoryResults}
+            </React.Fragment>
           );
         })}
       </View>
@@ -258,100 +364,27 @@ export function Compare({
           {message}
         </Text>
       ) : null}
-      {loadError ? (
-        <Text accessibilityRole="alert" style={s.error} testID="prices-error">
-          {loadError}
-        </Text>
-      ) : null}
-      {loading && (
-        <ActivityIndicator
-          color={colors.primary}
-          style={{ marginBottom: 12 }}
-          testID="prices-loading"
-        />
-      )}
-      {category ? (
+      {!category && (
         <>
-          <View style={s.resultsHead}>
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          {loadError ? (
+            <Text
+              accessibilityRole="alert"
+              style={s.error}
+              testID="prices-error"
             >
-              <Text style={s.sectionTitle}>{category}</Text>
-              <Text style={s.count}>{browsed.length}</Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="카테고리 선택 해제"
-              onPress={() => chooseCategory(category)}
-              style={{ padding: 6 }}
-            >
-              <Icon name="close" size={16} color={colors.muted} />
-            </Pressable>
-          </View>
-          <View style={s.sorts}>
-            {BROWSE_SORTS.map((x) => (
-              <Chip
-                key={x.name}
-                title={x.ready ? x.name : `${x.name} · 준비 중`}
-                active={categorySort === x.name}
-                disabled={!x.ready}
-                onPress={() => setCategorySort(x.name)}
-                testID={`browse-sort-${x.name}`}
-              />
-            ))}
-          </View>
-          <Text style={s.productTitle}>
-            다른 여행자의 영수증 기록
-            <Text style={s.unitNote}>
-              {" "}
-              · 최근 구매가격 · {effectiveCurrency}
+              {loadError}
             </Text>
-          </Text>
-          {browsed.length ? (
-            browsed.map((p) => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${storeLabel(p)} 매장 선택`}
-                onPress={() => setSelected(p.id)}
-                key={p.id}
-                style={[
-                  s.storeCard,
-                  selected === p.id && { borderColor: colors.primary },
-                ]}
-                testID={`browse-${p.id}`}
-              >
-                <View style={s.storeTop}>
-                  <View style={s.storeIcon}>
-                    <Icon name={categoryIcon} color="#819CB2" size={22} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.storeName}>{storeLabel(p)}</Text>
-                    {storeOriginal(p) ? (
-                      <Text style={s.storeOriginal}>{storeOriginal(p)}</Text>
-                    ) : null}
-                    <Text style={s.storeDistance}>{p.product}</Text>
-                  </View>
-                  <Text style={s.price}>{money(p.unitMinor, p.currency)}</Text>
-                </View>
-                <View style={s.storeBottom}>
-                  <Text style={s.purchaseDate}>
-                    최근 구매일 {p.date.replace(/-/g, ".")}
-                  </Text>
-                  <Text style={s.purchaseCount}>구매 {p.count}회</Text>
-                </View>
-              </Pressable>
-            ))
-          ) : (
-            <View style={s.emptyCard}>
-              <Empty
-                icon="search"
-                title="아직 이 카테고리의 공유 기록이 없어요"
-                detail="다른 여행자의 영수증 기록이 쌓이면 여기에 표시돼요."
-              />
-            </View>
+          ) : null}
+          {loading && (
+            <ActivityIndicator
+              color={colors.primary}
+              style={{ marginBottom: 12 }}
+              testID="prices-loading"
+            />
           )}
         </>
-      ) : (
+      )}
+      {!category && (
         <>
           <View style={s.resultsHead}>
             <View
@@ -642,6 +675,7 @@ const s = StyleSheet.create({
     padding: 13,
     justifyContent: "space-between",
   },
+  categoryResults: { width: "100%", marginBottom: 6 },
   tileActive: { borderWidth: 2.5, borderColor: colors.ink },
   tileText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   sorts: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 12 },

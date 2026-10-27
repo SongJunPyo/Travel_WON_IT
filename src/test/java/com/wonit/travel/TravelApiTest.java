@@ -168,13 +168,13 @@ class TravelApiTest {
                 receipt("오사카 매장", 34.7025, 135.4959, "2026-10-27", 100, true),
                 receipt("비공개 매장", 35.6900, 139.7000, "2026-10-27", 90, false))).andExpect(status().isOk());
         save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
-        prices("&category=식당").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(2))
+        prices("&category=음식").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(2))
                 .andExpect(jsonPath("$.records[0].store").value("테스트 매장 B")).andExpect(jsonPath("$.records[0].count").value(1))
                 .andExpect(jsonPath("$.records[1].unitMinor").value(330)).andExpect(jsonPath("$.records[1].count").value(2))
                 .andExpect(jsonPath("$.records[1].date").value("2026-10-27")).andExpect(jsonPath("$.records[1].product").value("도리토스 나초 150g"))
                 .andExpect(jsonPath("$.records[1].distance").isNumber());
-        prices("&category=식당&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
-        prices("&category=식당&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
+        prices("&category=음식&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
+        prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
     }
     @Test void 상품_검색은_대소문자와_한국어_이름으로_찾는다() throws Exception {
