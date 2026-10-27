@@ -24,7 +24,7 @@ public class PriceService {
     private final ReceiptItemRepository items;
     public PriceService(ReceiptItemRepository items) { this.items = items; }
     // 반경 안의 공유 영수증을 매장명·주소·상품별로 묶어 최근 가격과 구매수를 돌려줍니다.
-    // category와 q는 함께 쓸 수 있고, 둘 다 없으면 반경 안의 모든 상품을 돌려줍니다.
+    // category와 q는 함께 쓸 수 있고, 둘 다 없으면 반경 안의 모든 상품을 돌려줍니다. q는 상품명과 매장명을 찾습니다.
     @Transactional(readOnly = true)
     public List<PriceRecord> browse(String currency, Double latitude, Double longitude, Integer radius,
             String category, String q, String sort) {
@@ -52,15 +52,20 @@ public class PriceService {
         return latest.entrySet().stream().map(e -> {
             ReceiptItem i = e.getValue();
             Receipt r = i.receipt();
-            return new PriceRecord(String.valueOf(i.id()), r.storeName(), r.storeAddress(), r.latitude(), r.longitude(),
+            return new PriceRecord(String.valueOf(i.id()), r.storeName(), r.storeNameKo(), r.storeAddress(), r.latitude(), r.longitude(),
                     i.nameKo() == null ? i.rawName() : i.nameKo(), r.currency(), r.purchasedDate().toString(), i.unitMinor(),
                     r.browseCategory(), counts.get(e.getKey()), distance(latitude, longitude, r));
         }).sorted(ORDER.get(order).thenComparingLong(PriceRecord::distance).thenComparing(PriceRecord::id)).limit(200).toList();
     }
+    // 상품명(원문·한국어)과 매장명(원문·한국어) 중 하나라도 검색어를 포함하면 찾습니다. 띄어쓰기·대소문자는 무시합니다.
     private static boolean matches(ReceiptItem i, String query, String key) {
-        String lower = query.toLowerCase(Locale.ROOT);
-        return i.normalizedName().contains(key) || i.rawName().toLowerCase(Locale.ROOT).contains(lower)
-                || (i.nameKo() != null && (i.nameKo().toLowerCase(Locale.ROOT).contains(lower) || LedgerService.normalize(i.nameKo()).contains(key)));
+        Receipt r = i.receipt();
+        return i.normalizedName().contains(key) || contains(i.rawName(), query, key) || contains(i.nameKo(), query, key)
+                || contains(r.storeName(), query, key) || contains(r.storeNameKo(), query, key);
+    }
+    private static boolean contains(String text, String query, String key) {
+        return text != null && (text.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))
+                || LedgerService.normalize(text).contains(key));
     }
     private static boolean newer(ReceiptItem a, ReceiptItem b) {
         Receipt x = a.receipt(), y = b.receipt();

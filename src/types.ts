@@ -1,7 +1,11 @@
 export type Coordinate = { latitude: number; longitude: number };
 export type Receipt = {
   id: string;
+  // store는 영수증 원문 매장명, storeKo는 한국어 매장명(이전 기록에는 없을 수 있음)
   store: string;
+  storeKo?: string;
+  // PAGE 2 카테고리 둘러보기 분류(식당·명소 등). 없으면 상품 검색에만 나옵니다.
+  browseCategory?: string | null;
   date: string;
   category: string;
   currency: string;
@@ -44,6 +48,7 @@ export type ExchangeRate = {
 export type Price = {
   id: string;
   store: string;
+  storeKo: string | null;
   address: string;
   latitude: number;
   longitude: number;

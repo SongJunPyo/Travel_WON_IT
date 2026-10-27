@@ -23,7 +23,8 @@ let seq = 0,
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // Claude가 돌려주는 형식(금액은 소수 문자열). 서버가 최소 단위(180)로 바꿔 앱에 줍니다.
 const sampleOcr = {
-  store: "테스트 사진 매장",
+  store: "テスト写真店",
+  storeKo: "테스트 사진 매장",
   address: "도쿄 신주쿠구 테스트 주소 1-1",
   date: "2026-10-27",
   currency: "JPY",
@@ -640,11 +641,35 @@ try {
     `document.querySelector('[data-testid="store-address"]').value==='도쿄 신주쿠구 테스트 주소 1-1'`,
     "영수증 매장 주소 자동 입력",
   );
+  await check(
+    `document.querySelector('[data-testid="receipt-store"]').value==='テスト写真店'&&document.querySelector('[data-testid="receipt-store-ko"]').value==='테스트 사진 매장'`,
+    "매장명 원문·한국어 번역 두 칸 채움",
+  );
+  await click("browse-category-식당");
   await click("save-receipt");
   await check(
-    `${saved}.receipts.at(-1).store==='테스트 사진 매장'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,
+    `${saved}.receipts.at(-1).store==='テスト写真店'&&${saved}.receipts.at(-1).storeKo==='테스트 사진 매장'&&${saved}.receipts.at(-1).browseCategory==='식당'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,
     "사진 분석 상품 내역 저장",
   );
+  // 다른 여행자 화면: 한국어 매장명으로 검색되고, 고른 카테고리(식당) 둘러보기에도 나옵니다.
+  let found = false;
+  for (let i = 0; i < 50 && !found; i++) {
+    const byName = await nearPrices("테스트 사진");
+    const byCategory = (
+      await (
+        await fetch(
+          `${api}/prices?currency=JPY&latitude=35.6896&longitude=139.7006&category=${encodeURIComponent("식당")}`,
+        )
+      ).json()
+    ).records;
+    found =
+      byName.some(
+        (r) => r.store === "テスト写真店" && r.storeKo === "테스트 사진 매장",
+      ) && byCategory.some((r) => r.store === "テスト写真店");
+    if (!found) await pause(100);
+  }
+  assert.ok(found, "한국어 매장명 검색과 카테고리 둘러보기에 새 영수증 표시");
+  checks++;
   for (const width of [320, 768]) {
     await send("Emulation.setDeviceMetricsOverride", {
       width,

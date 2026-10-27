@@ -55,7 +55,8 @@ receipts 1 ── N receipt_items                 (영수증 삭제 시 품목�
 | id              | BIGINT        | PK  | N    | 자동 증가                                                     |
 | device_id       | BIGINT        | FK  | N    | devices.id (영수증 주인)                                      |
 | trip_id         | BIGINT        | FK  | Y    | trips.id. 여행이 지워지면 NULL                                |
-| store_name      | VARCHAR(120)  |     | N    | 가게명                                                        |
+| store_name      | VARCHAR(120)  |     | N    | 영수증 원문 매장명 (예: すし酒場さしす)                       |
+| store_name_ko   | VARCHAR(120)  |     | Y    | 한국어 매장명 (예: 스시 사카바 사시스). OCR이 번역, 사용자가 수정 가능 |
 | store_address   | VARCHAR(250)  |     | N    | 매장 주소. 없으면 빈 값                                       |
 | latitude        | DOUBLE        |     | Y    | 매장 위도                                                     |
 | longitude       | DOUBLE        |     | Y    | 매장 경도                                                     |
@@ -124,7 +125,7 @@ SELECT * FROM (
 ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchased_date
 ```
 
-**PAGE 2 — 상품 검색**: 카테고리 조건 대신 `(i.name_ko LIKE CONCAT('%', ?, '%') OR i.raw_name LIKE CONCAT('%', ?, '%'))`를 씁니다.
+**PAGE 2 — 상품·매장 검색**: 카테고리 조건 대신 상품명(`i.raw_name`, `i.name_ko`)과 매장명(`r.store_name`, `r.store_name_ko`) 중 하나라도 검색어를 포함하면 찾습니다. 한국어로도 일본어 원문으로도 찾을 수 있습니다.
 
 서버 구현([PriceService.java](../src/main/java/com/wonit/travel/price/PriceService.java))은 H2 테스트와 같은 코드로 돌도록, DB에서는 공유 여부·통화·카테고리·위치 사각형까지만 거르고 정확한 반경(하버사인 거리)·묶음·정렬은 Java에서 계산합니다. 결과는 위 쿼리와 같습니다. 검색어는 원문·한국어 이름의 부분 일치와 정규화한 이름의 부분 일치로 찾습니다.
 
@@ -140,11 +141,13 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 - 2026-10-27 23:57: 처음 구상한 8테이블 설계로 만든 이전 서버(`ddl-auto=update`)가 `travel_won`에 연결되어, 테이블 5개(`categories`·`stores`·`products`·`store_products`·`ocr_history`)를 만들고 `receipts`·`receipt_items`에 열을 추가했습니다. 팀 회의에서 이 문서의 4개 테이블 구조를 유지하기로 정했고, 해당 팀원이 9개 테이블을 지웠습니다.
 - 2026-10-28 00:36: 이 문서의 스키마 파일로 4개 테이블을 다시 만들고 가데이터를 적재했습니다([sample-data/](../sample-data/README.md)). `npm run server:mysql`로 PAGE 2 조회를 확인했습니다.
 - **재발 방지:** 공용 계정이라 DB 권한으로 테이블 변경을 막을 수 없습니다. `travel_won`에는 최신 `main`을 `npm run server:mysql`(`ddl-auto=none`)로만 연결하고, `ddl-auto=update`인 코드로는 연결하지 않기로 했습니다(2026-10-28 팀 합의).
+- 2026-10-28 04:03: `ALTER TABLE receipts ADD COLUMN store_name_ko VARCHAR(120) NULL AFTER store_name;`을 적용했습니다(승인받음). 기존 8,157행은 NULL로 남았고, 이전 버전 서버도 그대로 동작합니다. 적용 뒤 `npm run server:mysql`로 매장명 검색(원문)과 카테고리 조회를 확인했습니다.
 - 생성 직후 트랜잭션 안에서 시험 데이터로 확인하고 모두 되돌렸습니다: 허용값·공유 시 좌표 필수·수량 범위·기기당 여행 1개 거부, PAGE 2 쿼리(반경 3km 제외, 최근 가격, 구매수), 대소문자 무시 검색, 영수증 삭제 시 품목 함께 삭제, 환율 소수 보존 — 12개 통과.
 
 ## 6. 남은 작업
 
 1. ~~서버: 엔티티·저장소·서비스·API를 새 구조로 교체~~ (2026-10-27 완료. API는 README 참고)
 2. ~~앱: 가계부 서버 저장, 시연 위치 도쿄, 환율 소수 입력~~ (2026-10-28 완료. 가계부는 `PUT /ledger`로 통째 교체, `receipts.share_consent`는 매장 위치가 있는 실제 영수증이면 자동으로 TRUE)
-4. OCR에 PAGE 2 카테고리(`browse_category`) 추천 추가
+4. ~~PAGE 2 카테고리(`browse_category`)~~ 저장 화면에서 사용자가 선택 (2026-10-28. AI 자동 추천은 하지 않기로 함)
+5. ~~`receipts.store_name_ko` 열 추가~~ (2026-10-28 04:03 `travel_won`에 적용)
 3. ~~신주쿠 주변 일본(JPY) 가데이터~~ (CSV 생성, 2026-10-28 `travel_won` 적재 완료. [sample-data/](../sample-data/README.md))

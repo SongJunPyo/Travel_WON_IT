@@ -16,6 +16,8 @@ import {
   money,
   CURRENCIES,
   normalizeProduct,
+  storeLabel,
+  storeOriginal,
 } from "../domain.mjs";
 import { fetchPrices } from "../api";
 import { colors, Icon, Chip, Empty, Button, Sheet } from "../components/ui";
@@ -309,7 +311,7 @@ export function Compare({
             browsed.map((p) => (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${p.store} 매장 선택`}
+                accessibilityLabel={`${storeLabel(p)} 매장 선택`}
                 onPress={() => setSelected(p.id)}
                 key={p.id}
                 style={[
@@ -323,7 +325,10 @@ export function Compare({
                     <Icon name={categoryIcon} color="#819CB2" size={22} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.storeName}>{p.store}</Text>
+                    <Text style={s.storeName}>{storeLabel(p)}</Text>
+                    {storeOriginal(p) ? (
+                      <Text style={s.storeOriginal}>{storeOriginal(p)}</Text>
+                    ) : null}
                     <Text style={s.storeDistance}>{p.product}</Text>
                   </View>
                   <Text style={s.price}>{money(p.unitMinor, p.currency)}</Text>
@@ -384,7 +389,7 @@ export function Compare({
               return (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${p.store} 매장 선택`}
+                  accessibilityLabel={`${storeLabel(p)} 매장 선택`}
                   onPress={() => setSelected(p.id)}
                   key={p.id}
                   style={[
@@ -409,9 +414,12 @@ export function Compare({
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={s.storeNameRow}>
-                        <Text style={s.storeName}>{p.store}</Text>
+                        <Text style={s.storeName}>{storeLabel(p)}</Text>
                         {cheapest && <Text style={s.lowest}>최저 기록</Text>}
                       </View>
+                      {storeOriginal(p) ? (
+                        <Text style={s.storeOriginal}>{storeOriginal(p)}</Text>
+                      ) : null}
                       <Text style={[s.storeDistance, { fontSize: 8 }]}>
                         {p.product}
                       </Text>
@@ -443,7 +451,7 @@ export function Compare({
                     </Text>
                     <Pressable
                       accessibilityRole="link"
-                      accessibilityLabel={`${p.store} 지도에서 보기`}
+                      accessibilityLabel={`${storeLabel(p)} 지도에서 보기`}
                       onPress={() =>
                         Linking.openURL(
                           `https://www.openstreetmap.org/?mlat=${p.latitude}&mlon=${p.longitude}#map=18/${p.latitude}/${p.longitude}`,
@@ -546,7 +554,7 @@ export function Compare({
             <View style={s.selected}>
               <Icon name="pin" color={colors.primary} size={18} />
               <Text style={s.selectedText}>
-                {selectedPrice.store} ·{" "}
+                {storeLabel(selectedPrice)} ·{" "}
                 {money(selectedPrice.unitMinor, selectedPrice.currency)}
               </Text>
               <Pressable
@@ -729,6 +737,7 @@ const s = StyleSheet.create({
     flexWrap: "wrap",
   },
   storeName: { fontSize: 13, color: colors.ink, fontWeight: "700" },
+  storeOriginal: { fontSize: 9, color: colors.muted, marginTop: 2 },
   lowest: {
     fontSize: 8,
     color: colors.primary,

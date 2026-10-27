@@ -58,7 +58,7 @@ public class ReceiptDraftMapper {
         }
         String category = r.category() != null && LedgerService.LEDGER_CATEGORIES.contains(r.category().strip())
                 ? r.category().strip() : "기타";
-        return new ReceiptDraft(store(r.store()), address(r.address()), date(r.date()), currency, category, total, List.copyOf(items));
+        return new ReceiptDraft(store(r.store()), store(r.storeKo()), address(r.address()), date(r.date()), currency, category, total, List.copyOf(items));
     }
 
     private static String store(String store) {
@@ -66,7 +66,7 @@ public class ReceiptDraftMapper {
         return store.strip();
     }
 
-    /** 매장 주소는 DB stores.address(250자)에 들어가므로 길이를 넘으면 버립니다. */
+    /** 매장 주소는 DB receipts.store_address(250자)에 들어가므로 길이를 넘으면 버립니다. */
     private static String address(String address) {
         if (address == null || address.isBlank()) return null;
         String value = address.strip().replaceAll("\\s*\\n\\s*", ", ");

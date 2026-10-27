@@ -30,7 +30,8 @@ CREATE TABLE receipts (
   id               BIGINT        NOT NULL AUTO_INCREMENT,
   device_id        BIGINT        NOT NULL,
   trip_id          BIGINT        NULL,
-  store_name       VARCHAR(120)  NOT NULL,
+  store_name       VARCHAR(120)  NOT NULL,         -- 영수증 원문 매장명 (예: すし酒場さしす)
+  store_name_ko    VARCHAR(120)  NULL,             -- 한국어 매장명 (예: 스시 사카바 사시스)
   store_address    VARCHAR(250)  NOT NULL DEFAULT '',
   latitude         DOUBLE        NULL,
   longitude        DOUBLE        NULL,

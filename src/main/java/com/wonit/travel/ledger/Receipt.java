@@ -33,6 +33,7 @@ public class Receipt {
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "trip_id")
     @OnDelete(action = OnDeleteAction.SET_NULL) private Trip trip;
     @Column(name = "store_name", nullable = false, length = 120) private String storeName;
+    @Column(name = "store_name_ko", length = 120) private String storeNameKo;
     @Column(name = "store_address", nullable = false, length = 250) private String storeAddress;
     private Double latitude;
     private Double longitude;
@@ -51,7 +52,7 @@ public class Receipt {
     // 검증을 마친 값으로 덮어씁니다. 품목은 통째로 바꿉니다.
     void update(ReceiptData r, Trip trip) {
         this.trip = trip;
-        storeName = r.store(); storeAddress = r.address(); ledgerCategory = r.category(); browseCategory = r.browseCategory();
+        storeName = r.store(); storeNameKo = r.storeKo(); storeAddress = r.address(); ledgerCategory = r.category(); browseCategory = r.browseCategory();
         latitude = r.location() == null ? null : r.location().latitude();
         longitude = r.location() == null ? null : r.location().longitude();
         purchasedDate = LocalDate.parse(r.date()); currency = r.currency(); totalMinor = r.totalMinor(); rate = r.rate();
@@ -60,13 +61,14 @@ public class Receipt {
         r.items().forEach(i -> items.add(new ReceiptItem(this, i)));
     }
     ReceiptData data() {
-        return new ReceiptData(String.valueOf(id), storeName, storeAddress,
+        return new ReceiptData(String.valueOf(id), storeName, storeNameKo, storeAddress,
                 latitude == null ? null : new ReceiptData.Location(latitude, longitude),
                 ledgerCategory, browseCategory, purchasedDate.toString(), currency, rate, totalMinor, shareConsent, false,
                 items.stream().map(ReceiptItem::data).toList(), createdAt.atZone(ZoneId.systemDefault()).toInstant().toString());
     }
     public Long id() { return id; }
     public String storeName() { return storeName; }
+    public String storeNameKo() { return storeNameKo; }
     public String storeAddress() { return storeAddress; }
     public Double latitude() { return latitude; }
     public Double longitude() { return longitude; }
