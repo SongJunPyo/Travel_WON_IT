@@ -516,12 +516,12 @@ try {
     `document.querySelector('[data-testid="product-search"]').value===''&&${noSearchResults}`,
     "최초 진입 시 기본 검색어와 자동 검색 결과 없음",
   );
-  await click("category-식당");
+  await click("category-음식");
   await check(
     `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3`,
     "검색어 없이도 카테고리 둘러보기 가능",
   );
-  await click("category-식당");
+  await click("category-음식");
   await check(noSearchResults, "검색 전 카테고리 해제 시 결과 숨김");
   await send("Fetch.enable", {
     patterns: [{ urlPattern: "*/prices?*", requestStage: "Request" }],
@@ -643,6 +643,12 @@ try {
   await check(
     `${browseCards}.length===7&&!document.querySelector('[data-testid="show-more"]')`,
     "더 보기를 누르면 남은 결과 표시",
+  );
+  await click("category-관광");
+  await click("category-관광");
+  await check(
+    `${browseCards}.length===5&&!!document.querySelector('[data-testid="show-more"]')`,
+    "카테고리를 다시 고르면 처음 5개부터 표시",
   );
   await click("category-관광");
   await send("Browser.grantPermissions", {

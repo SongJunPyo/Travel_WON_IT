@@ -106,6 +106,10 @@ export function Compare({
       active = false;
     };
   }, [category, categorySort, searched, searchVersion, location, effectiveCurrency, version]);
+  // 조회 조건이나 정렬이 바뀌면 다시 처음 5개부터 보여 줍니다.
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [category, categorySort, searched, searchVersion, sort, location, effectiveCurrency]);
   const prices = category ? [] : rows,
     browsed = category ? rows : [];
   const sorted =
@@ -139,13 +143,6 @@ export function Compare({
           {loadError}
         </Text>
       ) : null}
-      {loading && (
-        <ActivityIndicator
-          color={colors.primary}
-          style={{ marginBottom: 12 }}
-          testID="prices-loading"
-        />
-      )}
       <View style={[s.resultsHead, { marginTop: 6 }]}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <Text style={s.sectionTitle}>{category}</Text>
@@ -390,31 +387,12 @@ export function Compare({
           {message}
         </Text>
       ) : null}
-      {loadError ? (
+      {loadError && !category ? (
         <Text accessibilityRole="alert" style={s.error} testID="prices-error">
           {loadError}
         </Text>
       ) : null}
-      {!loading && !loadError && (category ? (
-        <>
-          {loadError ? (
-            <Text
-              accessibilityRole="alert"
-              style={s.error}
-              testID="prices-error"
-            >
-              {loadError}
-            </Text>
-          ) : null}
-          {loading && (
-            <ActivityIndicator
-              color={colors.primary}
-              style={{ marginBottom: 12 }}
-              testID="prices-loading"
-            />
-          )}
-        </>
-      ) : searched ? (
+      {!category && !loading && !loadError && searched ? (
         <>
           <View style={s.resultsHead}>
             <View
@@ -540,7 +518,7 @@ export function Compare({
           )}
           {moreButton(sorted.length)}
         </>
-      ) : null)}
+      ) : null}
       <View style={s.notice}>
         <Icon name="info" color="#8AA0B4" size={16} />
         <Text style={s.noticeText}>
