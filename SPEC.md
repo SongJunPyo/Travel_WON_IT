@@ -75,7 +75,7 @@
 - [ ] 앱을 새 API로 전환 (가계부 서버 저장, 시연 위치 도쿄, 환율 소수 입력, 브라우저 검증 수정)
 - [ ] OCR에 PAGE 2 카테고리 추천 추가
 - [x] 신주쿠 주변 일본(JPY) 가데이터 CSV ([sample-data/](sample-data/README.md))
-- [ ] 가데이터 DB 적재 (결정 대기)
+- [x] 가데이터 `travel_won` 적재 (2026-10-28)
 - [ ] 상품명 검색(예: 도리토스)을 실제 적재 데이터로 확인
 - [x] 영수증 OCR을 Claude(Spring AI ChatClient)·multipart 업로드로 전환
 - [x] 한국수출입은행 환율 불러오기·소수 환율(소수 4자리) 저장과 계산

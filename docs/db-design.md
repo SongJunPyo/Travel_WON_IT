@@ -137,10 +137,13 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 - `.env`에 DB 값을 넣은 채로 이전 버전 서버(`ddl-auto=update`)를 실행하면 `shared_prices`가 다시 생깁니다. 최신 코드를 받아 실행하세요.
 - 제약조건 확인은 `SHOW CREATE TABLE`로 합니다. `information_schema.check_constraints`에서는 한글 허용값이 깨져 보이지만 표시 문제일 뿐이고, 실제 정의와 검사는 정상입니다(2026-10-27 확인).
 - 2026-10-27: 서버를 새 구조로 바꾼 뒤 `npm run server:mysql`로 여행 저장, 영수증 저장·수정·삭제, PAGE 2 카테고리·검색 조회를 실제 DB에서 확인했습니다. 확인용 기기 1개만 만들고 끝난 뒤 지웠습니다(4개 테이블 0행).
+- 2026-10-27 23:57: 처음 구상한 8테이블 설계로 만든 이전 서버(`ddl-auto=update`)가 `travel_won`에 연결되어, 테이블 5개(`categories`·`stores`·`products`·`store_products`·`ocr_history`)를 만들고 `receipts`·`receipt_items`에 열을 추가했습니다. 팀 회의에서 이 문서의 4개 테이블 구조를 유지하기로 정했고, 해당 팀원이 9개 테이블을 지웠습니다.
+- 2026-10-28 00:36: 이 문서의 스키마 파일로 4개 테이블을 다시 만들고 가데이터를 적재했습니다([sample-data/](../sample-data/README.md)). `npm run server:mysql`로 PAGE 2 조회를 확인했습니다.
+- **재발 방지:** 공용 계정이라 DB 권한으로 테이블 변경을 막을 수 없습니다. `travel_won`에는 최신 `main`을 `npm run server:mysql`(`ddl-auto=none`)로만 연결하고, `ddl-auto=update`인 코드로는 연결하지 않기로 했습니다(2026-10-28 팀 합의).
 - 생성 직후 트랜잭션 안에서 시험 데이터로 확인하고 모두 되돌렸습니다: 허용값·공유 시 좌표 필수·수량 범위·기기당 여행 1개 거부, PAGE 2 쿼리(반경 3km 제외, 최근 가격, 구매수), 대소문자 무시 검색, 영수증 삭제 시 품목 함께 삭제, 환율 소수 보존 — 12개 통과.
 
 ## 6. 남은 작업
 
 1. ~~서버: 엔티티·저장소·서비스·API를 새 구조로 교체~~ (2026-10-27 완료. API는 README 참고)
 2. 앱: 가계부를 서버에서 읽고 저장, 시연 위치를 도쿄로, OCR에 PAGE 2 카테고리 추천 추가, 환율 소수 입력
-3. 신주쿠 주변 일본(JPY) 가데이터: CSV 생성 완료([sample-data/](../sample-data/README.md), 영수증 8,152건). DB 적재는 결정 대기
+3. ~~신주쿠 주변 일본(JPY) 가데이터~~ (CSV 생성, 2026-10-28 `travel_won` 적재 완료. [sample-data/](../sample-data/README.md))

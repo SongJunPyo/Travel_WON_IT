@@ -233,8 +233,8 @@ travel_WONIT/
 ├── tests/domain.test.mjs         계산·정규화·공유 동의·카테고리 테스트
 ├── scripts/browser-check.mjs     Chrome 사용자 흐름 검증
 ├── scripts/sample-data.mjs       시연용 가데이터 CSV 생성 (npm run sample-data)
-├── sample-data/                  도쿄 신주쿠 가데이터 CSV (DB에는 아직 안 넣음)
-├── build.gradle                  Java 21·Spring Boot·Spring AI(Anthropic)·JPA·H2·MySQL 드라이버
+├── sample-data/                  도쿄 신주쿠 가데이터 CSV (travel_won에 적재함)
+├── build.gradle                  Java 21·Spring Boot·Spring AI·JPA·H2
 └── docs/                         명세 원본·검토 결과·검증 기록·화면 캡처
 ```
 
