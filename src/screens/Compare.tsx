@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  Image,
+  Modal,
   TextInput,
   Pressable,
   StyleSheet,
@@ -25,12 +27,14 @@ import { PriceMap } from "../components/PriceMap";
 import type { Coordinate, Price } from "../types";
 
 export function Compare({
+  active,
   version,
   onRefresh,
   syncMessage,
   mapOpen,
   onCloseMap,
 }: {
+  active: boolean;
   // 가계부를 서버에 저장할 때마다 바뀌어, 방금 저장한 영수증도 다시 조회합니다.
   version: number;
   onRefresh: () => Promise<void>;
@@ -38,8 +42,9 @@ export function Compare({
   mapOpen: boolean;
   onCloseMap: () => void;
 }) {
-  const [query, setQuery] = useState("도리토스"),
-    [searched, setSearched] = useState("도리토스");
+  const [query, setQuery] = useState(""),
+    [searched, setSearched] = useState<string | null>(null),
+    [searchVersion, setSearchVersion] = useState(0);
   const [location, setLocation] = useState<Coordinate>(DEMO_LOCATION),
     [demo, setDemo] = useState(true),
     [locating, setLocating] = useState(false),
@@ -59,14 +64,16 @@ export function Compare({
     if (!category && !searched) {
       setRows([]);
       setLoadError("");
+      setLoading(false);
       return;
     }
     let active = true;
     setLoading(true);
+    setLoadError("");
     fetchPrices({
       currency: effectiveCurrency,
       location,
-      ...(category ? { category, sort: categorySort } : { q: searched }),
+      ...(category ? { category, sort: categorySort } : { q: searched ?? undefined }),
     })
       .then((result) => {
         if (!active) return;
@@ -86,7 +93,7 @@ export function Compare({
     return () => {
       active = false;
     };
-  }, [category, categorySort, searched, location, effectiveCurrency, version]);
+  }, [category, categorySort, searched, searchVersion, location, effectiveCurrency, version]);
   const prices = category ? [] : rows,
     browsed = category ? rows : [];
   const sorted =
@@ -135,8 +142,12 @@ export function Compare({
     }
   }
   function search(value = query) {
+    const term = value.trim() || null;
     setQuery(value);
-    setSearched(value.trim());
+    setSearched(term);
+    setSearchVersion((previous) => previous + 1);
+    setLoading(!!term);
+    setLoadError("");
     setCategory(null);
     setSelected(null);
   }
@@ -178,6 +189,7 @@ export function Compare({
           <Pressable
             accessibilityRole="button"
             key={q}
+            testID={`quick-search-${q}`}
             onPress={() => search(q)}
           >
             <Text style={s.suggestion}>{q}</Text>
@@ -263,14 +275,7 @@ export function Compare({
           {loadError}
         </Text>
       ) : null}
-      {loading && (
-        <ActivityIndicator
-          color={colors.primary}
-          style={{ marginBottom: 12 }}
-          testID="prices-loading"
-        />
-      )}
-      {category ? (
+      {!loading && !loadError && (category ? (
         <>
           <View style={s.resultsHead}>
             <View
@@ -351,7 +356,7 @@ export function Compare({
             </View>
           )}
         </>
-      ) : (
+      ) : searched ? (
         <>
           <View style={s.resultsHead}>
             <View
@@ -372,7 +377,7 @@ export function Compare({
             </View>
           </View>
           <Text style={s.productTitle}>
-            {searched || "상품명을 입력해 주세요"}
+            {searched}
             <Text style={s.unitNote}> · 개당 가격 · {effectiveCurrency}</Text>
           </Text>
           {sorted.length ? (
@@ -476,7 +481,7 @@ export function Compare({
             </View>
           )}
         </>
-      )}
+      ) : null)}
       <View style={s.notice}>
         <Icon name="info" color="#8AA0B4" size={16} />
         <Text style={s.noticeText}>
@@ -521,6 +526,34 @@ export function Compare({
             : syncMessage}
         </Text>
       </View>
+      <Modal
+        visible={active && loading}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={s.loadingBackdrop}>
+          <View
+            style={s.loadingCard}
+            testID="prices-loading"
+            accessibilityViewIsModal
+            accessibilityState={{ busy: true }}
+          >
+            <Image
+              source={require("../../assets/search-pudding.png")}
+              style={s.loadingImage}
+              resizeMode="contain"
+              accessible={false}
+              testID="search-loading-image"
+            />
+            <Text style={s.loadingTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+              검색 중입니다
+            </Text>
+            <Text style={s.loadingDescription}>주변 매장의 가격 기록을 찾고 있어요.</Text>
+            <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
+          </View>
+        </View>
+      </Modal>
       {mapOpen && (
         <Sheet
           visible
@@ -624,8 +657,8 @@ const s = StyleSheet.create({
     marginBottom: 24,
     flexWrap: "wrap",
   },
-  suggestionLabel: { fontSize: 9, color: colors.muted },
-  suggestion: { fontSize: 10, color: "#6F8DA5" },
+  suggestionLabel: { fontSize: 11, color: colors.muted },
+  suggestion: { fontSize: 12, color: "#6F8DA5" },
   browseHead: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -663,6 +696,25 @@ const s = StyleSheet.create({
   },
   locateText: { fontSize: 10, color: colors.primary, fontWeight: "600" },
   error: { color: "#B7624E", fontSize: 11, lineHeight: 18, marginBottom: 12 },
+  loadingBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+    backgroundColor: "#183A5666",
+  },
+  loadingCard: {
+    width: "100%",
+    maxWidth: 300,
+    alignItems: "center",
+    padding: 24,
+    borderRadius: 24,
+    backgroundColor: "#fff",
+    boxShadow: "0px 12px 40px #183A5626",
+  },
+  loadingImage: { width: 208, height: 208, maxWidth: "100%" },
+  loadingTitle: { marginTop: 8, fontSize: 20, fontWeight: "800", color: colors.ink },
+  loadingDescription: { marginTop: 8, fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 18 },
   mapCaption: {
     flexDirection: "row",
     alignItems: "center",
