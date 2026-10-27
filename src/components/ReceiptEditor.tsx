@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
-  BROWSE_CATEGORIES,
   CATEGORIES,
   CURRENCIES,
   parseMoney,
@@ -44,11 +43,6 @@ const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
   );
-// PAGE 2 카테고리 선택지. "선택 안 함"이면 상품·매장 검색에만 나옵니다.
-const BROWSE_CHOICES: { name: string | null; title: string }[] = [
-  { name: null, title: "선택 안 함" },
-  ...BROWSE_CATEGORIES.map((c) => ({ name: c.name, title: c.name })),
-];
 export function ReceiptEditor({
   visible,
   trip,
@@ -67,10 +61,7 @@ export function ReceiptEditor({
   const [store, setStore] = useState(initial?.store || ""),
     [storeKo, setStoreKo] = useState(initial?.storeKo || ""),
     [date, setDate] = useState(initial?.date || today()),
-    [category, setCategory] = useState(initial?.category || "음식"),
-    [browseCategory, setBrowseCategory] = useState<string | null>(
-      initial?.browseCategory || null,
-    );
+    [category, setCategory] = useState(initial?.category || "음식");
   const [currency, setCurrency] = useState(initial?.currency || trip.currency),
     [rate, setRate] = useState(String(initial?.rate || trip.rate)),
     [rateNote, setRateNote] = useState<{ text: string; failed: boolean } | null>(
@@ -266,7 +257,6 @@ export function ReceiptEditor({
           `receipt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         store: store.trim(),
         ...(storeKo.trim() ? { storeKo: storeKo.trim() } : {}),
-        browseCategory,
         date,
         category,
         currency,
@@ -449,22 +439,6 @@ export function ReceiptEditor({
           />
         ))}
       </View>
-      <Label>주변 가격 비교 카테고리</Label>
-      <View style={s.chips}>
-        {BROWSE_CHOICES.map((c) => (
-          <Chip
-            key={c.title}
-            title={c.title}
-            active={browseCategory === c.name}
-            onPress={() => setBrowseCategory(c.name)}
-            testID={`browse-category-${c.title}`}
-          />
-        ))}
-      </View>
-      <Text style={s.totalNote}>
-        고르면 다른 여행자의 카테고리 둘러보기에 나와요. 고르지 않으면 상품·매장
-        검색에만 나와요.
-      </Text>
       <Label>결제 통화</Label>
       <View style={s.chips}>
         {Object.keys(CURRENCIES).map((c) => (
