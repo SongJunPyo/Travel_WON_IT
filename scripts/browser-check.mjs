@@ -166,6 +166,21 @@ const seedReceipts = [
       139.702,
     ),
   ),
+  // '더 보기' 확인용: 관광 카테고리 매장 7곳.
+  ...Array.from({ length: 7 }, (_, i) => ({
+    ...seedReceipt(
+      `s10-${i}`,
+      `전망대 ${i + 1}`,
+      "2026-10-26",
+      null,
+      "展望台 入場券",
+      "전망대 입장권",
+      1000 + i * 100,
+      35.69 + i * 0.001,
+      139.7,
+    ),
+    category: "관광",
+  })),
 ];
 // 8787을 다른 서버가 쓰고 있으면 API_PORT로 바꿉니다. 웹 빌드도 EXPO_PUBLIC_API_URL로 같은 주소를 써야 합니다.
 const apiPort = process.env.API_PORT || "8787";
@@ -547,6 +562,18 @@ try {
     `${storeCards}.length===2`,
     "카테고리 해제 후 상품 검색 결과 복귀",
   );
+  const browseCards = `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])')`;
+  await click("category-관광");
+  await check(
+    `${browseCards}.length===5&&!!document.querySelector('[data-testid="show-more"]')`,
+    "결과는 5개만 보이고 더 보기 버튼 표시",
+  );
+  await click("show-more");
+  await check(
+    `${browseCards}.length===7&&!document.querySelector('[data-testid="show-more"]')`,
+    "더 보기를 누르면 남은 결과 표시",
+  );
+  await click("category-관광");
   await send("Browser.grantPermissions", {
     origin,
     permissions: ["geolocation"],
