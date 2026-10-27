@@ -78,7 +78,7 @@ receipts 1 ── N receipt_items                 (영수증 삭제 시 품목�
 | receipt_id      | BIGINT       | FK  | N    | receipts.id. 영수증 삭제 시 함께 삭제             |
 | raw_name        | VARCHAR(160) |     | N    | 영수증 원문 (예: DORITOS NACHO 150G)              |
 | name_ko         | VARCHAR(160) |     | Y    | 한국어 이름 (예: 도리토스 나초 150g)              |
-| normalized_name | VARCHAR(200) | IDX | N    | 같은 상품을 묶는 기준                             |
+| normalized_name | VARCHAR(200) | IDX | N    | 같은 상품을 묶는 기준. 영수증 원문을 정규화한 값  |
 | quantity        | INT          |     | N    | 수량 1–999                                        |
 | unit_minor      | BIGINT       |     | N    | 개당 가격 (최소 통화 단위)                        |
 
@@ -126,6 +126,8 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 
 **PAGE 2 — 상품 검색**: 카테고리 조건 대신 `(i.name_ko LIKE CONCAT('%', ?, '%') OR i.raw_name LIKE CONCAT('%', ?, '%'))`를 씁니다.
 
+서버 구현([PriceService.java](../src/main/java/com/wonit/travel/price/PriceService.java))은 H2 테스트와 같은 코드로 돌도록, DB에서는 공유 동의·통화·위치 사각형까지만 거르고 정확한 반경(하버사인 거리)·묶음·정렬은 Java에서 계산합니다. 결과는 위 쿼리와 같습니다. 검색어는 원문·한국어 이름의 부분 일치와 정규화한 이름의 부분 일치로 찾습니다.
+
 내 영수증도 PAGE 2에 나옵니다. 시연에서 "방금 찍은 영수증이 PAGE 2에 나타난다"를 보여 주기 위해서입니다.
 
 ## 5. 운영 메모
@@ -134,10 +136,11 @@ ORDER BY purchase_count DESC;   -- 가격순은 unit_minor, 최신순은 purchas
 - DB 계정은 서버 전체 관리자 권한을 가진 공용 계정입니다. 시연에는 가데이터와 본인 테스트 영수증만 넣습니다.
 - `.env`에 DB 값을 넣은 채로 이전 버전 서버(`ddl-auto=update`)를 실행하면 `shared_prices`가 다시 생깁니다. 최신 코드를 받아 실행하세요.
 - 제약조건 확인은 `SHOW CREATE TABLE`로 합니다. `information_schema.check_constraints`에서는 한글 허용값이 깨져 보이지만 표시 문제일 뿐이고, 실제 정의와 검사는 정상입니다(2026-10-27 확인).
+- 2026-10-27: 서버를 새 구조로 바꾼 뒤 `npm run server:mysql`로 여행 저장, 영수증 저장·수정·삭제, PAGE 2 카테고리·검색 조회를 실제 DB에서 확인했습니다. 확인용 기기 1개만 만들고 끝난 뒤 지웠습니다(4개 테이블 0행).
 - 생성 직후 트랜잭션 안에서 시험 데이터로 확인하고 모두 되돌렸습니다: 허용값·공유 시 좌표 필수·수량 범위·기기당 여행 1개 거부, PAGE 2 쿼리(반경 3km 제외, 최근 가격, 구매수), 대소문자 무시 검색, 영수증 삭제 시 품목 함께 삭제, 환율 소수 보존 — 12개 통과.
 
 ## 6. 남은 작업
 
-1. 서버: 엔티티·저장소·서비스·API를 새 구조로 교체 (지금의 공유 가격 API 대체)
+1. ~~서버: 엔티티·저장소·서비스·API를 새 구조로 교체~~ (2026-10-27 완료. API는 README 참고)
 2. 앱: 가계부를 서버에서 읽고 저장, 시연 위치를 도쿄로, OCR에 PAGE 2 카테고리 추천 추가, 환율 소수 입력
-3. 신주쿠 주변 일본(JPY) 가데이터 SQL
+3. 신주쿠 주변 일본(JPY) 가데이터: CSV 생성 완료([sample-data/](../sample-data/README.md), 영수증 8,152건). DB 적재는 결정 대기

@@ -10,14 +10,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class TravelController {
-    public record PriceRequest(List<PriceRecord> records) {}
     public record OcrRequest(String image) {}
     private record Limit(int count, long expires) {}
     private final ConcurrentHashMap<String, Limit> limits = new ConcurrentHashMap<>();
@@ -25,10 +23,13 @@ public class TravelController {
     private final OcrService ocr;
     public TravelController(PriceService prices, OcrService ocr) { this.prices = prices; this.ocr = ocr; }
     @GetMapping("/health") public Map<String, Boolean> health() { return Map.of("ok", true, "ocrConfigured", ocr.configured()); }
-    @GetMapping("/prices") public Map<String, List<PriceRecord>> prices() { return Map.of("records", prices.get()); }
-    @PutMapping(path = "/prices", consumes = "application/json")
-    public Map<String, Boolean> prices(@RequestHeader(value = "Authorization", required = false) String token, @RequestBody PriceRequest request) {
-        prices.replace(token, request.records()); return Map.of("ok", true);
+    // PAGE 2: 공유 동의한 영수증을 반경 안에서 카테고리(category) 또는 상품명(q)으로 조회합니다.
+    @GetMapping("/prices")
+    public Map<String, List<PriceRecord>> prices(@RequestParam(required = false) String currency,
+            @RequestParam(required = false) Double latitude, @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false) Integer radius, @RequestParam(required = false) String category,
+            @RequestParam(required = false) String q, @RequestParam(required = false) String sort) {
+        return Map.of("records", prices.browse(currency, latitude, longitude, radius, category, q, sort));
     }
     @PostMapping(path = "/ocr", consumes = "application/json")
     public Map<String, ReceiptDraft> ocr(@RequestBody OcrRequest request, HttpServletRequest servlet) {

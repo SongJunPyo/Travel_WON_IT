@@ -387,7 +387,8 @@ frontend/       React 19 + Vite
 ### 10.5 남은 일
 
 - 거리순 정렬 (현재 위치 연동 후)
-- DB 설계·연결. 공유 기록에 카테고리를 넣어 실제 기록이 카테고리 화면에 나오게 합니다.
+- 앱을 새 API로 전환. DB 설계·생성과 서버 전환은 끝났습니다([db-design.md](db-design.md)).
+- `npm run test:browser`는 이전 API(`PUT /prices`)를 기준으로 짜여 있어, 앱 전환 때 함께 고칩니다.
 - 상품명 검색(도리토스)을 실제 데이터로 확인
 - 실기기 시연 방식 결정과 빌드 설정
 - 포트를 비운 상태에서 `npm run test:browser` 실행, 화면 캡처(`docs/screenshots/`) 갱신

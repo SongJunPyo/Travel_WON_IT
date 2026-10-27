@@ -1,15 +1,13 @@
 package com.wonit.travel.ocr;
 
 import com.wonit.travel.api.ApiException;
-import com.wonit.travel.price.PriceService;
+import com.wonit.travel.ledger.LedgerService;
 import java.time.LocalDate;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
 public class OcrService {
-    private static final Set<String> CATEGORIES = Set.of("음식", "쇼핑", "교통", "숙박", "관광", "기타");
     private final ReceiptAiGateway gateway;
     private final String apiKey;
     public OcrService(ReceiptAiGateway gateway, @Value("${app.openai-api-key}") String apiKey) { this.gateway = gateway; this.apiKey = apiKey; }
@@ -22,7 +20,7 @@ public class OcrService {
         try {
             if (r == null || r.store() == null || r.store().isBlank() || r.store().length() > 120
                     || !LocalDate.parse(r.date()).toString().equals(r.date())
-                    || !PriceService.CURRENCIES.contains(r.currency()) || !CATEGORIES.contains(r.category())
+                    || !LedgerService.CURRENCIES.contains(r.currency()) || !LedgerService.LEDGER_CATEGORIES.contains(r.category())
                     || r.totalMinor() < 1 || r.totalMinor() > 1_000_000_000 || r.items() == null || r.items().isEmpty() || r.items().size() > 100
                     || r.items().stream().anyMatch(i -> i == null || i.name() == null || i.name().isBlank() || i.name().length() > 160
                         || i.quantity() < 1 || i.quantity() > 999 || i.unitMinor() < 1 || i.unitMinor() > 1_000_000_000)) throw new IllegalArgumentException();

@@ -48,10 +48,11 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 ## 데이터와 한계
 
 - 가계부와 여행 설정은 기기의 AsyncStorage에 저장합니다. 웹에서는 해당 주소의 브라우저 localStorage를 씁니다.
-- 공유에 동의한 상품 가격은 서버 DB에 저장합니다. 기본은 H2 파일 DB(`data/prices.mv.db`)이고, `npm run server:mysql`로 실행하면 MySQL(`travel_won`)을 씁니다. MySQL에서는 DB 설계를 마칠 때까지 테이블을 자동으로 만들지 않습니다. 기기 토큰은 SHA-256 해시로만 보관하고, 기기별 기록을 통째로 교체해 삭제와 동의 철회를 반영합니다. 앱을 지워도 서버 기록은 지워지지 않으므로, 먼저 공유를 해제해야 합니다.
+- 서버는 기기·여행·영수증·품목 4개 테이블에 저장합니다([docs/db-design.md](docs/db-design.md)). 기본은 H2 파일 DB(`data/prices.mv.db`)이고, `npm run server:mysql`로 실행하면 MySQL(`travel_won`)을 씁니다. 기기 토큰은 SHA-256 해시로만 보관합니다. PAGE 2에는 공유에 동의하고 매장 위치가 있는 영수증만 나옵니다.
+- **전환 중:** 서버는 새 구조로 바뀌었지만 앱은 아직 예전 방식(`PUT /prices`)으로 동기화합니다. 앱을 새 API로 바꾸기 전까지는 서버를 켜도 화면에 "서버에 연결하지 못했어요"가 나오고, 내 기기의 기록만 보입니다.
 - 금액은 최소 통화 단위 정수로 저장합니다(EUR·USD·THB는 센트, JPY·KRW는 엔·원). 원화 환산에는 사용자가 입력한 환율을 쓰며, 실시간 환율이 아닙니다.
 - **시연 데이터**: 처음 실행할 때 보이는 영수증 6건, 평균 소비 비율, 파리의 가상 매장과 가격, 카테고리 둘러보기 기록은 모두 가상입니다. 시연 영수증은 여행 설정에서 지울 수 있습니다.
-- 카테고리 둘러보기는 아직 실제 공유 기록과 연결되지 않았습니다. 공유 기록에 카테고리 정보가 없기 때문이며, 가계부·공유 기록 DB를 설계한 뒤 연결할 예정입니다.
+- 카테고리 둘러보기 화면은 아직 가상 시연 기록을 씁니다. 서버의 카테고리·검색 조회(`GET /prices`)는 준비됐고, 앱 연결은 다음 단계입니다.
 - AI 상품 추천과 거리순 정렬은 아직 구현하지 않았습니다. 상품명 검색은 실제 데이터가 쌓인 뒤 다시 확인할 예정입니다.
 - 서버는 로컬 해커톤용 단일 프로세스입니다. 공개 운영에는 사용자 인증, HTTPS, 운영 DB, 접근 제어·비용 한도, 데이터 보관 정책이 필요합니다.
 
@@ -137,7 +138,7 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
    .\gradlew.bat bootRun --args="--spring.profiles.active=mysql"   # Windows
    ```
 
-   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만들었습니다. **서버 코드는 아직 새 DB 구조로 바꾸기 전이라, MySQL 모드에서는 가격 공유·조회 요청이 실패합니다.**
+   이 방식에서는 테이블을 자동으로 만들거나 바꾸지 않습니다(`ddl-auto=none`). 테이블은 [docs/db-schema-mysql.sql](docs/db-schema-mysql.sql)로 만들었습니다. 앱은 아직 새 API로 바꾸기 전입니다([데이터와 한계](#데이터와-한계) 참고).
 
 6. **휴대폰에서 실행** (선택)
 
@@ -185,8 +186,14 @@ AI는 영수증 해석만 맡고, 금액 계산과 검증은 프로그램이 수
 | ------ | --------- | -------------------------------------------------------------------------------------- |
 | GET    | `/health` | 서버 상태와 OCR 키 설정 여부                                                           |
 | POST   | `/ocr`    | 영수증 사진 분석. base64로 인코딩한 JPG·PNG·WEBP, 6MB 이하. IP당 시간당 20회         |
-| GET    | `/prices` | 공유된 상품 가격 기록                                                                  |
-| PUT    | `/prices` | 이 기기의 공유 기록을 통째로 교체. `Authorization: Bearer <기기 토큰>` 헤더 필요 |
+| GET    | `/ledger` | 내 여행 설정과 영수증 목록. 처음 보는 기기는 빈 가계부                                 |
+| PUT    | `/trip`   | 여행 설정 저장(기기당 1개). 환율은 소수 4자리까지                                     |
+| POST   | `/receipts` | 영수증 저장. 상품 합계와 총액이 같아야 하고, 공유하려면 매장 위치가 필요             |
+| PUT    | `/receipts/{id}` | 내 영수증 수정(품목은 통째로 교체). 다른 기기의 영수증은 404                     |
+| DELETE | `/receipts/{id}` | 내 영수증 삭제(품목도 함께 삭제)                                                 |
+| GET    | `/prices` | PAGE 2 조회. `currency`·`latitude`·`longitude` 필수, `category`·`q`(상품명)·`sort`(가격순·구매수·최신순)·`radius`(기본 3000m) 선택. 매장·상품별 최근 가격과 구매수 |
+
+`/ledger`·`/trip`·`/receipts`는 `Authorization: Bearer <기기 토큰>` 헤더가 필요합니다. 기기 토큰은 앱이 처음 실행할 때 만듭니다.
 
 ## 프로젝트 구조
 
@@ -214,11 +221,14 @@ travel_WONIT/
 │   ├── main/java/com/wonit/travel/
 │   │   ├── api/                  REST 컨트롤러·CORS·오류 처리·요청 크기 제한
 │   │   ├── ocr/                  영수증 분석 서비스·OpenAI 연결·Spring AI 구조화 출력
-│   │   └── price/                공유 가격 서비스·JPA 엔티티·저장소
+│   │   ├── ledger/               가계부: 기기·여행·영수증·품목 JPA 엔티티·저장소·서비스
+│   │   └── price/                PAGE 2 조회: 반경·카테고리·검색·정렬
 │   ├── main/resources/           Spring 설정
 │   └── test/java/                JUnit 5 API·DB·OCR 테스트
 ├── tests/domain.test.mjs         계산·정규화·공유 동의·카테고리 테스트
 ├── scripts/browser-check.mjs     Chrome 사용자 흐름 검증
+├── scripts/sample-data.mjs       시연용 가데이터 CSV 생성 (npm run sample-data)
+├── sample-data/                  도쿄 신주쿠 가데이터 CSV (DB에는 아직 안 넣음)
 ├── build.gradle                  Java 21·Spring Boot·Spring AI·JPA·H2
 └── docs/                         명세 원본·검토 결과·검증 기록·화면 캡처
 ```
