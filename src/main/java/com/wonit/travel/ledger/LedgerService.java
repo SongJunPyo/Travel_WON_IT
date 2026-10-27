@@ -5,7 +5,10 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.Normalizer;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -20,58 +23,49 @@ public class LedgerService {
     public static final Set<String> LEDGER_CATEGORIES = Set.of("음식", "쇼핑", "교통", "숙박", "관광", "기타");
     public static final Set<String> BROWSE_CATEGORIES = Set.of("식당", "명소", "화장품", "의류", "뷰티·웰니스", "숙박", "액티비티", "렌트");
     private static final BigDecimal MAX_RATE = BigDecimal.valueOf(1_000_000);
-    public record Ledger(TripData trip, List<ReceiptData> receipts) {}
+    // 앱의 TravelState(src/types.ts)와 같은 모양입니다.
+    public record TravelState(Integer version, TripData trip, List<ReceiptData> receipts) {}
     private final DeviceRepository devices;
     private final TripRepository trips;
     private final ReceiptRepository receipts;
     public LedgerService(DeviceRepository devices, TripRepository trips, ReceiptRepository receipts) {
         this.devices = devices; this.trips = trips; this.receipts = receipts;
     }
-    // 처음 보는 기기는 저장할 때 만들고, 조회만 할 때는 빈 가계부를 돌려줍니다.
+    // 저장한 적이 없는 기기는 null을 돌려줍니다. 앱은 이때 기기의 시연 가계부로 시작합니다.
     @Transactional(readOnly = true)
-    public Ledger ledger(String authorization) {
-        return devices.findByTokenHash(hash(authorization))
-                .map(d -> new Ledger(trips.findByDevice(d).map(Trip::data).orElse(null),
-                        receipts.findByDeviceOrderByPurchasedDateDescCreatedAtDesc(d).stream().map(Receipt::data).toList()))
-                .orElse(new Ledger(null, List.of()));
+    public TravelState load(String authorization) {
+        return devices.findByTokenHash(hash(authorization)).flatMap(d -> trips.findByDevice(d).map(t -> new TravelState(1, t.data(),
+                receipts.findByDeviceOrderByIdAsc(d).stream().map(Receipt::data).toList()))).orElse(null);
     }
+    // 이 기기의 여행과 영수증을 통째로 바꿉니다. 하나라도 잘못되면 아무것도 바꾸지 않습니다.
+    // 시연 영수증은 저장하지 않고, 공유는 매장 위치가 있는 영수증만 합니다.
     @Transactional
-    public synchronized TripData saveTrip(String authorization, TripData request) {
-        TripData t = validate(request);
-        Device device = device(authorization);
+    public synchronized void replace(String authorization, TravelState state) {
+        String tokenHash = hash(authorization);
+        if (state == null || !Integer.valueOf(1).equals(state.version()) || state.receipts() == null)
+            throw new ApiException(400, "가계부 형식을 확인해 주세요.");
+        TripData t = validate(state.trip());
+        List<ReceiptData> rows = state.receipts().stream().filter(r -> r == null || !Boolean.TRUE.equals(r.demo())).map(this::validate).toList();
+        if (rows.size() > 1000) throw new ApiException(400, "기기당 영수증은 1,000개까지 저장할 수 있어요.");
+        Device device = devices.findByTokenHash(tokenHash).orElseGet(() -> devices.saveAndFlush(new Device(tokenHash)));
+        List<Receipt> old = receipts.findByDeviceOrderByIdAsc(device);
+        if (receipts.count() - old.size() + rows.size() > 30000) throw new ApiException(507, "시연 서버의 저장 한도에 도달했어요.");
+        receipts.deleteAll(old);
+        receipts.flush();
         Trip trip = trips.findByDevice(device).orElseGet(() -> new Trip(device));
         trip.update(t);
-        return trips.saveAndFlush(trip).data();
+        trips.saveAndFlush(trip);
+        for (ReceiptData r : rows) {
+            Receipt receipt = new Receipt(device, recordedAt(r.recordedAt()));
+            receipt.update(r, trip);
+            receipts.save(receipt);
+        }
+        receipts.flush();
     }
-    @Transactional
-    public synchronized ReceiptData create(String authorization, ReceiptData request) {
-        ReceiptData r = validate(request);
-        Device device = device(authorization);
-        if (receipts.countByDevice(device) >= 1000) throw new ApiException(507, "기기당 영수증은 1,000개까지 저장할 수 있어요.");
-        if (receipts.count() >= 30000) throw new ApiException(507, "시연 서버의 저장 한도에 도달했어요.");
-        Receipt receipt = new Receipt(device);
-        receipt.update(r, trips.findByDevice(device).orElse(null));
-        return receipts.saveAndFlush(receipt).data();
-    }
-    @Transactional
-    public synchronized ReceiptData update(String authorization, Long id, ReceiptData request) {
-        ReceiptData r = validate(request);
-        Receipt receipt = own(authorization, id);
-        receipt.update(r, trips.findByDevice(devices.findByTokenHash(hash(authorization)).orElseThrow()).orElse(null));
-        return receipts.saveAndFlush(receipt).data();
-    }
-    @Transactional
-    public synchronized void delete(String authorization, Long id) {
-        receipts.delete(own(authorization, id));
-    }
-    // 다른 기기의 영수증은 있는지조차 알리지 않도록 같은 404로 응답합니다.
-    private Receipt own(String authorization, Long id) {
-        return devices.findByTokenHash(hash(authorization)).flatMap(d -> receipts.findByIdAndDevice(id, d))
-                .orElseThrow(() -> new ApiException(404, "영수증을 찾지 못했어요."));
-    }
-    private Device device(String authorization) {
-        String tokenHash = hash(authorization);
-        return devices.findByTokenHash(tokenHash).orElseGet(() -> devices.saveAndFlush(new Device(tokenHash)));
+    // 앱이 기록한 저장 시각을 그대로 써서, 같은 날 산 기록 중 최근 것을 고를 때 순서가 바뀌지 않게 합니다.
+    private static LocalDateTime recordedAt(String value) {
+        try { return LocalDateTime.ofInstant(Instant.parse(value), ZoneId.systemDefault()); }
+        catch (RuntimeException e) { return LocalDateTime.now(); }
     }
     private TripData validate(TripData t) {
         if (t == null || !text(t.city(), 50) || !text(t.country(), 50) || !date(t.start()) || !date(t.end())
@@ -83,7 +77,7 @@ public class LedgerService {
     private ReceiptData validate(ReceiptData r) {
         if (r == null || !text(r.store(), 120) || (r.address() != null && r.address().strip().length() > 250)
                 || !date(r.date()) || !in(CURRENCIES, r.currency()) || !in(LEDGER_CATEGORIES, r.category())
-                || (!blank(r.browseCategory()) && !in(BROWSE_CATEGORIES, r.browseCategory())) || r.shareConsent() == null)
+                || (!blank(r.browseCategory()) && !in(BROWSE_CATEGORIES, r.browseCategory())) || !text(r.id(), 150))
             throw new ApiException(400, "매장명·구매일·통화·카테고리를 확인해 주세요.");
         if (!rate(r.rate())) throw new ApiException(400, "적용 환율을 확인해 주세요.");
         ReceiptData.Location location = r.location();
@@ -91,7 +85,6 @@ public class LedgerService {
                 || !Double.isFinite(location.latitude()) || Math.abs(location.latitude()) > 85.0511
                 || !Double.isFinite(location.longitude()) || Math.abs(location.longitude()) > 180))
             throw new ApiException(400, "매장 위치를 확인해 주세요.");
-        if (r.shareConsent() && location == null) throw new ApiException(400, "가격을 공유하려면 매장 위치가 필요해요.");
         if (r.items() == null || r.items().isEmpty() || r.items().size() > 100
                 || r.items().stream().anyMatch(i -> i == null || !text(i.name(), 160) || (i.nameKo() != null && i.nameKo().strip().length() > 160)
                     || i.quantity() == null || i.quantity() < 1 || i.quantity() > 999
@@ -103,9 +96,9 @@ public class LedgerService {
             throw new ApiException(400, "상품 합계와 총 결제금액이 달라요. 할인·세금은 상품 가격에 반영해 주세요.");
         List<ReceiptData.Item> items = r.items().stream().map(i -> new ReceiptData.Item(i.name().strip(),
                 blank(i.nameKo()) ? null : i.nameKo().strip(), i.quantity(), i.unitMinor())).toList();
-        return new ReceiptData(null, r.store().strip(), r.address() == null ? "" : r.address().strip(), location, r.category(),
+        return new ReceiptData(r.id(), r.store().strip(), r.address() == null ? "" : r.address().strip(), location, r.category(),
                 blank(r.browseCategory()) ? null : r.browseCategory(), r.date(), r.currency(), r.rate(), r.totalMinor(),
-                r.shareConsent(), items, null);
+                Boolean.TRUE.equals(r.shareConsent()) && location != null, false, items, r.recordedAt());
     }
     // 같은 상품을 묶는 기준입니다. 영수증 원문 이름을 정규화합니다.
     public static String normalize(String value) {

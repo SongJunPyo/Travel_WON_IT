@@ -26,11 +26,10 @@ import { colors, Icon } from "./src/components/ui";
 import {
   createDemo,
   fingerprint,
-  publicPrices,
   validateReceipt,
 } from "./src/domain.mjs";
 import { loadLedger, syncLedger } from "./src/api";
-import type { Receipt, TravelState, Price } from "./src/types";
+import type { Receipt, TravelState } from "./src/types";
 
 const STORAGE_KEY = "travel-wonhae-mobile-v1",
   TOKEN_KEY = "travel-wonhae-device-token";
@@ -45,8 +44,8 @@ function TravelApp() {
     [editing, setEditing] = useState<Receipt | null>(null),
     [settings, setSettings] = useState(false),
     [notice, setNotice] = useState("");
-  const [records, setRecords] = useState<Price[]>([]),
-    [syncMessage, setSyncMessage] = useState("공유 가격을 확인하고 있어요.");
+  const [pricesVersion, setPricesVersion] = useState(0),
+    [syncMessage, setSyncMessage] = useState("가계부를 서버에 저장하고 있어요.");
   const token = useRef(""),
     writeQueue = useRef(Promise.resolve()),
     syncQueue = useRef(Promise.resolve());
@@ -112,18 +111,17 @@ function TravelApp() {
   }, [state, loaded, storageFailed]);
   async function refresh() {
     if (!token.current || storageFailed) return;
-    // 가계부 전체를 순서대로 서버 DB에 저장해 삭제·동의 철회와 재시도를 함께 처리합니다.
-    // 가격 비교 기록은 서버가 공유 동의한 품목에서 계산합니다.
-    const current = state,
-      snapshot = current.receipts.flatMap(publicPrices);
+    // 가계부 전체를 순서대로 서버 DB에 저장해 삭제·수정과 재시도를 함께 처리합니다.
+    // 저장이 끝나면 PAGE 2가 서버에서 다시 조회해 방금 저장한 영수증도 보여 줍니다.
+    const current = state;
     syncQueue.current = syncQueue.current.then(async () => {
       try {
-        setRecords(await syncLedger(current, token.current));
-        setSyncMessage("공유 가격을 최신 상태로 확인했어요.");
+        await syncLedger(current, token.current);
+        setSyncMessage("가계부를 서버에 저장했어요.");
+        setPricesVersion((v) => v + 1);
       } catch {
-        setRecords(snapshot);
         setSyncMessage(
-          "서버에 연결하지 못했어요. 내 기기의 공유 기록만 표시해요. 변경사항은 다음 연결 시 반영돼요.",
+          "서버에 연결하지 못했어요. 가계부는 기기에 저장했고, 다음 연결 때 서버에 반영해요.",
         );
       }
     });
@@ -281,7 +279,7 @@ function TravelApp() {
             {visitedCompare && (
               <View style={{ display: tab === "compare" ? "flex" : "none" }}>
                 <Compare
-                  records={records}
+                  version={pricesVersion}
                   onRefresh={refresh}
                   syncMessage={syncMessage}
                   mapOpen={mapOpen}

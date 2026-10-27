@@ -40,6 +40,7 @@ export type ExchangeRate = {
   date: string;
   source: string;
 };
+// PAGE 2 서버 조회(GET /prices) 결과: 매장·상품별 최근 구매가격과 구매수입니다.
 export type Price = {
   id: string;
   store: string;
@@ -47,13 +48,10 @@ export type Price = {
   latitude: number;
   longitude: number;
   product: string;
-  original?: string;
   currency: string;
   date: string;
   unitMinor: number;
-  demo: boolean;
-  receiptId?: string;
-  distance?: number;
-  category?: string;
-  count?: number;
+  category: string | null;
+  count: number;
+  distance: number;
 };

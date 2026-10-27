@@ -3,10 +3,11 @@ package com.wonit.travel.ledger;
 import java.math.BigDecimal;
 import java.util.List;
 
-// 영수증의 요청·응답 형식입니다. 요청의 id·recordedAt은 무시하고 서버가 정합니다.
-public record ReceiptData(Long id, String store, String address, Location location, String category,
+// 앱의 Receipt(src/types.ts)와 같은 모양입니다. 요청의 id는 검사만 하고, 서버가 DB 번호를 새로 정합니다.
+// browseCategory는 PAGE 2 카테고리(없으면 null)이고, demo 영수증은 서버에 저장하지 않습니다.
+public record ReceiptData(String id, String store, String address, Location location, String category,
         String browseCategory, String date, String currency, BigDecimal rate, Long totalMinor,
-        Boolean shareConsent, List<Item> items, String recordedAt) {
+        Boolean shareConsent, Boolean demo, List<Item> items, String recordedAt) {
     public record Location(Double latitude, Double longitude) {}
     public record Item(String name, String nameKo, Integer quantity, Long unitMinor) {}
 }

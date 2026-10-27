@@ -165,46 +165,6 @@ export function distanceMeters(a, b) {
       Math.sin(dLon / 2) ** 2;
   return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
 }
-// 같은 매장명·주소·상품·통화를 하나의 구매 대상으로 봅니다.
-const purchaseKey = (row) =>
-  [
-    row.store.normalize("NFKC").toLowerCase().replace(/\s+/g, ""),
-    String(row.address || "")
-      .normalize("NFKC")
-      .toLowerCase()
-      .replace(/\s+/g, ""),
-    normalizeProduct(row.product),
-    row.currency,
-  ].join("|");
-const isNewer = (row, prev) =>
-  row.date > prev.date ||
-  (row.date === prev.date && (row.recordedAt || "") > (prev.recordedAt || ""));
-export function comparePrices(
-  records,
-  query,
-  location,
-  currency,
-  radius = 3000,
-) {
-  const key = normalizeProduct(query);
-  if (!key) return [];
-  const latest = new Map();
-  for (const row of records) {
-    if (
-      row.currency !== currency ||
-      !normalizeProduct(row.product).includes(key)
-    )
-      continue;
-    const distance = distanceMeters(location, row);
-    if (distance > radius) continue;
-    const id = purchaseKey(row);
-    const prev = latest.get(id);
-    if (!prev || isNewer(row, prev)) latest.set(id, { ...row, distance });
-  }
-  return [...latest.values()].sort(
-    (a, b) => a.unitMinor - b.unitMinor || a.distance - b.distance,
-  );
-}
 // 가계부 차트와 별개인 PAGE 2 둘러보기 카테고리입니다. 영수증 단위로 분류합니다.
 export const BROWSE_CATEGORIES = [
   { name: "식당", icon: "food", color: "#D9653B" },
@@ -223,53 +183,26 @@ export const BROWSE_SORTS = [
   { name: "최신순", ready: true },
   { name: "거리순", ready: false },
 ];
-const BROWSE_ORDER = {
-  가격순: (a, b) => a.unitMinor - b.unitMinor || b.count - a.count,
-  구매수: (a, b) => b.count - a.count || a.unitMinor - b.unitMinor,
-  최신순: (a, b) => b.date.localeCompare(a.date) || b.count - a.count,
-};
-export function browseCategory(
-  records,
-  category,
-  location,
-  currency,
-  sort = "가격순",
-  radius = 3000,
-) {
-  const groups = new Map();
-  for (const row of records) {
-    if (row.category !== category || row.currency !== currency) continue;
-    const distance = distanceMeters(location, row);
-    if (distance > radius) continue;
-    const id = purchaseKey(row);
-    const prev = groups.get(id);
-    const latest = !prev || isNewer(row, prev) ? { ...row, distance } : prev;
-    groups.set(id, { ...latest, count: (prev?.count || 0) + 1 });
-  }
-  return [...groups.values()].sort(BROWSE_ORDER[sort] || BROWSE_ORDER.가격순);
+// 시연 위치: 도쿄 신주쿠역. PAGE 2는 이 위치 반경 3km의 공유 영수증을 서버에서 조회합니다.
+export const DEMO_LOCATION = { latitude: 35.6896, longitude: 139.7006 };
+// 시연용 가짜 매장 좌표. 실제 GPS 대신, 매장명·주소로 정한 신주쿠역 300m~1.5km 지점을 씁니다.
+// 같은 매장은 항상 같은 좌표가 나와 PAGE 2에서 한 매장으로 묶입니다.
+export function demoStoreLocation(store, address = "") {
+  let hash = 0x811c9dc5;
+  for (const ch of `${store}|${address}`
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, ""))
+    hash = Math.imul(hash ^ ch.codePointAt(0), 0x01000193) >>> 0;
+  const angle = ((hash & 0xffff) / 0x10000) * 2 * Math.PI,
+    meters = 300 + ((hash >>> 16) % 1200);
+  const lat = DEMO_LOCATION.latitude + (meters * Math.sin(angle)) / 111320;
+  const lng =
+    DEMO_LOCATION.longitude +
+    (meters * Math.cos(angle)) /
+      (111320 * Math.cos((DEMO_LOCATION.latitude * Math.PI) / 180));
+  return { latitude: +lat.toFixed(6), longitude: +lng.toFixed(6) };
 }
-export function publicPrices(receipt) {
-  // 동의 절차 없이 시연이 아닌 영수증은 모두 공유합니다. 위치·주소가 있어야 지도에 표시할 수 있어요.
-  if (receipt.demo || !receipt.location || !receipt.address?.trim()) return [];
-  return receipt.items.map((i, index) => ({
-    id: `${receipt.id}-${index}`,
-    receiptId: receipt.id,
-    store: receipt.store,
-    address: receipt.address,
-    latitude: receipt.location.latitude,
-    longitude: receipt.location.longitude,
-    // 다른 나라 영수증과도 묶이도록 한국어 번역을 우선 씁니다. 원어는 original로 함께 보여 줍니다.
-    product: i.nameKo || i.name,
-    original: i.name,
-    normalized: normalizeProduct(i.nameKo || i.name),
-    unitMinor: i.unitMinor,
-    currency: receipt.currency,
-    date: receipt.date,
-    recordedAt: receipt.recordedAt,
-    demo: false,
-  }));
-}
-export const DEMO_LOCATION = { latitude: 48.8584, longitude: 2.347 };
 export function createDemo() {
   const make = (id, store, date, category, totalMinor, items) => ({
     id,
@@ -278,8 +211,8 @@ export function createDemo() {
     category,
     totalMinor,
     items: items || [{ name: store, quantity: 1, unitMinor: totalMinor }],
-    currency: "EUR",
-    rate: 1600,
+    currency: "JPY",
+    rate: 9.24,
     shareConsent: false,
     demo: true,
     address: "",
@@ -289,133 +222,46 @@ export function createDemo() {
   return {
     version: 1,
     trip: {
-      city: "파리",
-      country: "프랑스",
+      city: "도쿄",
+      country: "일본",
       start: "2026-10-24",
       end: "2026-10-30",
       budget: 1000000,
-      currency: "EUR",
-      rate: 1600,
+      currency: "JPY",
+      rate: 9.24,
     },
     receipts: [
-      make("demo-hotel", "메종 블루 호텔", "2026-10-24", "숙박", 23695),
-      make("demo-shop", "메르시 편집숍", "2026-10-25", "쇼핑", 8314),
-      make("demo-cafe", "카페 드 파리", "2026-10-27", "음식", 2860),
-      make("demo-market", "마르셰 A · 시연 매장", "2026-10-27", "음식", 2128, [
-        { name: "코카콜라 500ml", quantity: 2, unitMinor: 180 },
-        { name: "에비앙 500ml", quantity: 2, unitMinor: 120 },
-        { name: "샌드위치", quantity: 2, unitMinor: 764 },
+      make("demo-hotel", "호텔 하루 신주쿠", "2026-10-24", "숙박", 59400),
+      make("demo-shop", "베이직웨어 신주쿠점", "2026-10-25", "쇼핑", 8980),
+      make("demo-cafe", "카페 모쿠", "2026-10-27", "음식", 1240),
+      make("demo-market", "데일리마트 · 시연 매장", "2026-10-27", "음식", 996, [
+        {
+          name: "DORITOS ナチョチーズ 60G",
+          nameKo: "도리토스 나초치즈 60g",
+          quantity: 2,
+          unitMinor: 158,
+        },
+        {
+          name: "コカ・コーラ 500ML",
+          nameKo: "코카콜라 500ml",
+          quantity: 2,
+          unitMinor: 160,
+        },
+        {
+          name: "おにぎり 鮭",
+          nameKo: "주먹밥 연어",
+          quantity: 2,
+          unitMinor: 180,
+        },
       ]),
-      make("demo-metro", "파리 메트로", "2026-10-26", "교통", 2494),
-      make("demo-museum", "오르세 미술관", "2026-10-26", "관광", 2079),
+      make("demo-metro", "교통카드 충전", "2026-10-26", "교통", 3000),
+      make(
+        "demo-museum",
+        "니시신주쿠 스카이 전망대",
+        "2026-10-26",
+        "관광",
+        2400,
+      ),
     ],
   };
 }
-export const DEMO_PRICES = [
-  {
-    id: "price-a",
-    store: "마르셰 A",
-    address: "파리 중심부 · 가상 매장 A",
-    latitude: 48.8598,
-    longitude: 2.345,
-    unitMinor: 180,
-  },
-  {
-    id: "price-b",
-    store: "시티 마켓 B",
-    address: "파리 중심부 · 가상 매장 B",
-    latitude: 48.8556,
-    longitude: 2.351,
-    unitMinor: 210,
-  },
-  {
-    id: "price-c",
-    store: "에피스리 C",
-    address: "파리 중심부 · 가상 매장 C",
-    latitude: 48.8628,
-    longitude: 2.353,
-    unitMinor: 250,
-  },
-].flatMap((s, i) => [
-  {
-    ...s,
-    product: "코카콜라 500ml",
-    currency: "EUR",
-    date: `2026-10-${27 - i}`,
-    demo: true,
-  },
-  {
-    ...s,
-    id: s.id + "-water",
-    product: "에비앙 500ml",
-    currency: "EUR",
-    date: `2026-10-${27 - i}`,
-    unitMinor: 120 + i * 35,
-    demo: true,
-  },
-]);
-// 카테고리 둘러보기 시연용 가상 거래 기록입니다. 매장·가격·좌표는 모두 가상입니다.
-// [카테고리, 매장, 상품, 위도, 경도, 최근 구매부터의 개당 가격(센트)]
-const DEMO_BROWSE_STORES = [
-  [
-    "식당",
-    "비스트로 A",
-    "오늘의 메뉴",
-    48.8606,
-    2.341,
-    [1800, 1750, 1800, 1650],
-  ],
-  ["식당", "브라스리 B", "크로크 무슈", 48.8541, 2.35, [1250, 1250]],
-  ["식당", "카페 C", "카페 크렘", 48.857, 2.3525, [420, 400, 420, 380, 420]],
-  ["명소", "미술관 A", "성인 입장권", 48.86, 2.333, [1600, 1600, 1600]],
-  ["명소", "성당 B", "탑 전망 입장권", 48.8527, 2.348, [1300, 1300]],
-  ["화장품", "드러그스토어 A", "립밤 4g", 48.8622, 2.3445, [690, 690, 720]],
-  ["화장품", "코스메틱 B", "핸드크림 30ml", 48.8551, 2.3401, [1150, 1200]],
-  ["의류", "편집숍 A", "스트라이프 티셔츠", 48.8593, 2.3622, [4500, 4500]],
-  ["의류", "아웃렛 B", "에코백", 48.8642, 2.352, [1500, 1500, 1400]],
-  ["뷰티·웰니스", "스파 A", "아로마 마사지 60분", 48.8655, 2.336, [9000, 9500]],
-  ["뷰티·웰니스", "네일숍 B", "젤 네일", 48.852, 2.356, [4500]],
-  ["숙박", "호텔 A", "더블룸 1박", 48.857, 2.361, [16500, 15900, 16500]],
-  [
-    "숙박",
-    "호스텔 B",
-    "도미토리 1박",
-    48.866,
-    2.3555,
-    [4200, 4200, 4500, 4200],
-  ],
-  [
-    "액티비티",
-    "리버 크루즈 A",
-    "1시간 크루즈",
-    48.859,
-    2.328,
-    [1700, 1700, 1600],
-  ],
-  ["액티비티", "자전거 투어 B", "3시간 투어", 48.854, 2.342, [3900, 3900]],
-  ["렌트", "렌터카 A", "소형차 1일", 48.8505, 2.346, [6500, 6900]],
-  [
-    "렌트",
-    "자전거 대여 B",
-    "전기자전거 1일",
-    48.861,
-    2.358,
-    [2500, 2500, 2400],
-  ],
-];
-export const DEMO_PURCHASES = DEMO_BROWSE_STORES.flatMap(
-  ([category, store, product, latitude, longitude, prices], s) =>
-    prices.map((unitMinor, i) => ({
-      id: `purchase-${s}-${i}`,
-      store,
-      address: "파리 중심부 · 가상 매장",
-      latitude,
-      longitude,
-      product,
-      category,
-      currency: "EUR",
-      date: `2026-10-${String(27 - (s % 4) - i * 2).padStart(2, "0")}`,
-      unitMinor,
-      demo: true,
-    })),
-);

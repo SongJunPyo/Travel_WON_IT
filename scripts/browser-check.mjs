@@ -24,20 +24,159 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // Claude가 돌려주는 형식(금액은 소수 문자열). 서버가 최소 단위(180)로 바꿔 앱에 줍니다.
 const sampleOcr = {
   store: "테스트 사진 매장",
-  address: "1 Rue de Test, 75001 Paris",
+  address: "도쿄 신주쿠구 테스트 주소 1-1",
   date: "2026-10-27",
-  currency: "EUR",
+  currency: "JPY",
   category: "음식",
-  total: "3.60",
+  total: "320",
   items: [
     {
-      name: "COCA COLA 50CL",
-      nameKo: "코카콜라 500ml",
+      name: "DORITOS ナチョチーズ 60G",
+      nameKo: "도리토스 나초치즈 60g",
       quantity: 2,
-      unitPrice: "1.80",
+      unitPrice: "160",
     },
   ],
 };
+// PAGE 2 확인용: 다른 여행자의 공유 영수증입니다(신주쿠역 근처 가상 매장, 오사카 1곳은 반경 밖).
+const seedReceipt = (
+  id,
+  store,
+  date,
+  browseCategory,
+  name,
+  nameKo,
+  unitMinor,
+  latitude,
+  longitude,
+) => ({
+  id,
+  store,
+  address: `${store} (가상 주소)`,
+  location: { latitude, longitude },
+  category: browseCategory === "화장품" ? "쇼핑" : "음식",
+  browseCategory,
+  date,
+  currency: "JPY",
+  rate: 9.24,
+  totalMinor: unitMinor,
+  shareConsent: true,
+  demo: false,
+  recordedAt: `${date}T10:00:00Z`,
+  items: [{ name, nameKo, quantity: 1, unitMinor }],
+});
+const doritos = ["DORITOS ナチョチーズ 60G", "도리토스 나초치즈 60g"],
+  hadaLabo = ["肌ラボ 極潤 ヒアルロン液 170ML", "하다라보 고쿠쥰 로션 170ml"];
+const seedReceipts = [
+  seedReceipt(
+    "s1",
+    "데일리마트 A",
+    "2026-10-27",
+    null,
+    ...doritos,
+    158,
+    35.6905,
+    139.701,
+  ),
+  seedReceipt(
+    "s2",
+    "산고 스토어 B",
+    "2026-10-26",
+    null,
+    ...doritos,
+    148,
+    35.693,
+    139.704,
+  ),
+  seedReceipt(
+    "s3",
+    "모닝마트 C",
+    "2026-10-25",
+    null,
+    ...doritos,
+    168,
+    35.688,
+    139.699,
+  ),
+  seedReceipt(
+    "s4",
+    "오사카 매장",
+    "2026-10-27",
+    null,
+    ...doritos,
+    100,
+    34.7025,
+    135.4959,
+  ),
+  seedReceipt(
+    "s5",
+    "웰케어 드럭 A",
+    "2026-10-27",
+    "화장품",
+    ...hadaLabo,
+    1078,
+    35.6915,
+    139.703,
+  ),
+  seedReceipt(
+    "s6",
+    "하나 드럭 B",
+    "2026-10-26",
+    "화장품",
+    ...hadaLabo,
+    998,
+    35.695,
+    139.702,
+  ),
+  ...["2026-10-24", "2026-10-25", "2026-10-26"].map((date, i) =>
+    seedReceipt(
+      `s7-${i}`,
+      "라멘 소라 A",
+      date,
+      "식당",
+      "醤油ラーメン",
+      "쇼유 라멘",
+      950,
+      35.692,
+      139.695,
+    ),
+  ),
+  seedReceipt(
+    "s8",
+    "규동 미나토 B",
+    "2026-10-24",
+    "식당",
+    "牛丼 並盛",
+    "규동 보통",
+    468,
+    35.701,
+    139.7,
+  ),
+  ...["2026-10-26", "2026-10-27"].map((date, i) =>
+    seedReceipt(
+      `s9-${i}`,
+      "카페 모쿠 C",
+      date,
+      "식당",
+      "カフェラテ",
+      "카페라테",
+      580,
+      35.683,
+      139.702,
+    ),
+  ),
+];
+// 8787을 다른 서버가 쓰고 있으면 API_PORT로 바꿉니다. 웹 빌드도 EXPO_PUBLIC_API_URL로 같은 주소를 써야 합니다.
+const apiPort = process.env.API_PORT || "8787";
+const api = `http://localhost:${apiPort}`;
+const nearPrices = async (q) =>
+  (
+    await (
+      await fetch(
+        `${api}/prices?currency=JPY&latitude=35.6896&longitude=139.7006&q=${encodeURIComponent(q)}`,
+      )
+    ).json()
+  ).records;
 try {
   staticServer = http.createServer(async (req, res) => {
     try {
@@ -70,12 +209,6 @@ try {
   await new Promise((r) => staticServer.listen(0, "127.0.0.1", r));
   const origin = `http://localhost:${staticServer.address().port}`;
   provider = http.createServer(async (req, res) => {
-    // 매장 주소 → 좌표 (Nominatim 대체 응답). 어떤 주소든 파리 시연 좌표를 돌려줍니다.
-    if (req.url.startsWith("/search")) {
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify([{ lat: "48.8584", lon: "2.347" }]));
-      return;
-    }
     let raw = "";
     for await (const chunk of req) raw += chunk;
     // Anthropic Messages API 대체 응답. 사진이 image 블록으로 왔는지만 확인합니다.
@@ -105,8 +238,8 @@ try {
     [
       "-jar",
       "build/libs/travel-wonhae-1.0.0.jar",
-      "--server.port=8787",
-      // 서버에는 아직 DB 저장 기능이 없어 검증 중에는 H2 메모리 DB를 씁니다(파일·MySQL을 건드리지 않음).
+      `--server.port=${apiPort}`,
+      // 검증 중에는 H2 메모리 DB를 씁니다(로컬 파일·MySQL을 건드리지 않음).
       "--spring.datasource.url=jdbc:h2:mem:browser-check",
       "--ANTHROPIC_API_KEY=test-only",
       `--app.allowed-origins=${origin}`,
@@ -125,13 +258,33 @@ try {
   for (let i = 0; i < 200; i++) {
     if (javaProcess.exitCode !== null) throw new Error(javaLogs.join(""));
     try {
-      apiReady = (await (await fetch("http://localhost:8787/health")).json())
-        .ok;
+      apiReady = (await (await fetch(`${api}/health`)).json()).ok;
       if (apiReady) break;
     } catch {}
     await pause(100);
   }
   if (!apiReady) throw new Error("Spring API 시작 실패\n" + javaLogs.join(""));
+  const seeded = await fetch(`${api}/ledger`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + "s".repeat(64),
+    },
+    body: JSON.stringify({
+      version: 1,
+      trip: {
+        city: "도쿄",
+        country: "일본",
+        start: "2026-10-24",
+        end: "2026-10-30",
+        budget: 1000000,
+        currency: "JPY",
+        rate: 9.24,
+      },
+      receipts: seedReceipts,
+    }),
+  });
+  assert.equal(seeded.status, 200, "다른 여행자 공유 영수증 서버 저장");
   chrome = spawn(
     process.env.CHROME_PATH ||
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -265,7 +418,7 @@ try {
   });
   await send("Page.navigate", { url: origin });
   await check(`${saved}?.receipts.length===6`, "시연 영수증 초기 상태");
-  await check(bodyHas("665,120"), "원화 총지출 표시");
+  await check(bodyHas("702,388"), "원화 총지출 표시");
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -287,7 +440,7 @@ try {
   await click("trip-settings");
   await set("trip-budget", "600000");
   await click("save-settings");
-  await check(bodyHas("65,120원 초과"), "예산 초과 상태 표시");
+  await check(bodyHas("102,388원 초과"), "예산 초과 상태 표시");
   await click("add-receipt");
   await click("sample-receipt");
   await click("save-receipt");
@@ -304,9 +457,9 @@ try {
   await click("add-receipt");
   await set("receipt-store", "직접 입력 테스트");
   await set("item-name-0", "코카콜라 500ml");
-  await set("item-price-0", "2.10");
+  await set("item-price-0", "210");
   await set("item-quantity-0", "2");
-  await set("receipt-total", "4.20");
+  await set("receipt-total", "420");
   await click("save-receipt");
   await check(
     `${saved}.receipts.length===8&&${saved}.receipts.at(-1).totalMinor===420`,
@@ -315,6 +468,10 @@ try {
   await check(
     `${saved}.receipts.at(-1).shareConsent===true&&!document.querySelector('[data-testid="share-consent"]')`,
     "동의 절차 없이 실제 영수증은 공유 대상",
+  );
+  await check(
+    `${saved}.receipts.at(-1).currency==='JPY'&&Math.abs(${saved}.receipts.at(-1).location.latitude-35.6896)<0.02`,
+    "새 영수증에 신주쿠 근처 시연용 매장 좌표",
   );
   const manualId = await evaluate(`${saved}.receipts.at(-1).id`);
   await click("receipt-" + manualId);
@@ -334,53 +491,55 @@ try {
     "재시작 후 데이터 복원",
   );
   await click("tab-compare");
+  const storeCards = `document.querySelectorAll('[data-testid^=store-]')`;
   await check(
-    `document.querySelectorAll('[data-testid^=store-]').length===3`,
-    "시연 상품 매장 세 개 검색",
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')`,
+    "서버 조회: 반경 안 도리토스 매장 세 곳을 가격순으로 표시",
   );
   await screenshot("mobile-compare");
   const mapShown = `!!document.querySelector('[aria-label="주변 매장 지도"]')`;
   await check(`!${mapShown}`, "지도는 버튼을 누르기 전까지 숨김");
-  await click("store-price-b");
+  await click(
+    await evaluate(
+      `[...${storeCards}].find((e)=>e.textContent.includes('산고 스토어 B')).dataset.testid`,
+    ),
+  );
   await click("map-open");
   await check(
-    `${mapShown}&&document.querySelectorAll('[aria-label="주변 매장 지도"] [aria-label*="€"]').length===3&&${bodyHas("시티 마켓 B · €2.10")}`,
+    `${mapShown}&&document.querySelectorAll('[aria-label="주변 매장 지도"] [aria-label*="¥"]').length===3&&${bodyHas("산고 스토어 B · ¥148")}`,
     "지도 버튼으로 목록 매장 표시와 선택 연결",
   );
   await clickLabel("창 닫기");
   await check(`!${mapShown}`, "X 버튼으로 지도 닫기");
-  await set("product-search", "COKE 0.5L");
+  await set("product-search", "doritos");
   await click("search-submit");
   await check(
-    `document.querySelectorAll('[data-testid^=store-]').length===3`,
-    "상품 약어와 용량 정규화 검색",
+    `${storeCards}.length===3`,
+    "영수증 원문(영문) 대소문자 무시 검색",
   );
   await set("product-search", "없는 상품");
   await click("search-submit");
   await check(bodyHas("아직 주변 구매 기록이 없어요"), "검색 빈 상태");
-  await set("product-search", "에비앙 500ml");
+  await set("product-search", "하다라보");
   await click("search-submit");
-  await check(
-    `document.querySelectorAll('[data-testid^=store-]').length===3`,
-    "다른 상품 검색",
-  );
-  const firstBrowse = `document.querySelector('[data-testid^=browse-purchase-]')?.textContent||''`;
+  await check(`${storeCards}.length===2`, "다른 상품 검색");
+  const firstBrowse = `document.querySelector('[data-testid^=browse-]:not([data-testid^=browse-sort])')?.textContent||''`;
   await click("category-식당");
   await check(
-    `document.querySelectorAll('[data-testid^=browse-purchase-]').length===3&&${firstBrowse}.includes('카페 C')`,
-    "카테고리 선택 시 거래 기록을 가격순으로 표시",
+    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('규동 미나토 B')`,
+    "카테고리 선택 시 서버 거래 기록을 가격순으로 표시",
   );
   await click("browse-sort-구매수");
-  await check(`${firstBrowse}.includes('구매 5회')`, "카테고리 구매수 정렬");
+  await check(`${firstBrowse}.includes('구매 3회')`, "카테고리 구매수 정렬");
   await click("browse-sort-최신순");
-  await check(`${firstBrowse}.includes('비스트로 A')`, "카테고리 최신순 정렬");
+  await check(`${firstBrowse}.includes('카페 모쿠 C')`, "카테고리 최신순 정렬");
   await check(
     `document.querySelector('[data-testid="browse-sort-거리순"]').getAttribute('aria-disabled')==='true'`,
     "거리순 필터는 비활성",
   );
   await click("category-식당");
   await check(
-    `document.querySelectorAll('[data-testid^=store-]').length===3`,
+    `${storeCards}.length===2`,
     "카테고리 해제 후 상품 검색 결과 복귀",
   );
   await send("Browser.grantPermissions", {
@@ -402,8 +561,8 @@ try {
   await click("add-receipt");
   await set("receipt-store", "공유 테스트 매장");
   await set("item-name-0", "코카콜라 500ml");
-  await set("item-price-0", "1.50");
-  await set("receipt-total", "1.50");
+  await set("item-price-0", "150");
+  await set("receipt-total", "150");
   await set("store-address", "테스트 매장 주소");
   await check(
     `!!document.querySelector('[data-testid="share-notice"]')&&!document.querySelector('[data-testid="share-notice"] [role="button"]')`,
@@ -411,13 +570,22 @@ try {
   );
   await click("save-receipt");
   await check(
-    `${saved}.receipts.at(-1).shareConsent===true&&!${saved}.receipts.at(-1).location`,
-    "위치 없이 주소만으로 영수증 저장",
+    `${saved}.receipts.at(-1).shareConsent===true&&!!${saved}.receipts.at(-1).location`,
+    "주소와 시연용 좌표로 영수증 저장",
   );
-  // 서버 가격 공유(/prices)와 주소 → 좌표 변환은 travel_won 4개 테이블 설계로 다시 만든 뒤 확인을 되살립니다.
+  // 앱이 가계부를 서버에 통째로 저장하면, 다른 사람의 PAGE 2 조회에도 나옵니다.
+  let shared = false;
+  for (let i = 0; i < 50 && !shared; i++) {
+    shared = (await nearPrices("코카콜라")).some(
+      (r) => r.store === "공유 테스트 매장",
+    );
+    if (!shared) await pause(100);
+  }
+  assert.ok(shared, "앱에서 저장한 영수증이 서버 PAGE 2 조회에 나옴");
+  checks++;
   await click("tab-compare");
   await check(
-    `document.querySelector('[data-testid="product-search"]').value==='에비앙 500ml'`,
+    `document.querySelector('[data-testid="product-search"]').value==='하다라보'`,
     "탭 이동 후 검색어 유지",
   );
   await check(bodyHas("현재 위치 · 반경 3km"), "탭 이동 후 위치 유지");
@@ -465,16 +633,16 @@ try {
     "분석이 끝나면 로딩 화면 닫힘",
   );
   await check(
-    `document.querySelector('[data-testid="item-name-0"]').value==='COCA COLA 50CL'&&document.querySelector('[data-testid="item-name-ko-0"]').value==='코카콜라 500ml'`,
+    `document.querySelector('[data-testid="item-name-0"]').value==='DORITOS ナチョチーズ 60G'&&document.querySelector('[data-testid="item-name-ko-0"]').value==='도리토스 나초치즈 60g'`,
     "상품명 원어·한국어 번역 두 칸 채움",
   );
   await check(
-    `document.querySelector('[data-testid="store-address"]').value==='1 Rue de Test, 75001 Paris'`,
+    `document.querySelector('[data-testid="store-address"]').value==='도쿄 신주쿠구 테스트 주소 1-1'`,
     "영수증 매장 주소 자동 입력",
   );
   await click("save-receipt");
   await check(
-    `${saved}.receipts.at(-1).store==='테스트 사진 매장'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='코카콜라 500ml'&&${saved}.receipts.at(-1).address==='1 Rue de Test, 75001 Paris'`,
+    `${saved}.receipts.at(-1).store==='테스트 사진 매장'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,
     "사진 분석 상품 내역 저장",
   );
   for (const width of [320, 768]) {
@@ -500,7 +668,7 @@ try {
         passed: checks,
         runtimeErrors: errors,
         screenshots: screenshotFolder,
-        note: "실제 Spring Boot·JPA·MySQL 서버 사용. Claude(Anthropic)·지오코딩 공급자만 로컬 응답으로 대체.",
+        note: "실제 Spring Boot·JPA 서버(H2 메모리 DB) 사용. Claude(Anthropic) 공급자만 로컬 응답으로 대체.",
       },
       null,
       2,

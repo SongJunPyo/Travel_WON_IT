@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -10,74 +10,88 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import {
-  comparePrices,
-  browseCategory,
   BROWSE_CATEGORIES,
   BROWSE_SORTS,
   DEMO_LOCATION,
-  DEMO_PRICES,
-  DEMO_PURCHASES,
   money,
   CURRENCIES,
   normalizeProduct,
 } from "../domain.mjs";
+import { fetchPrices } from "../api";
 import { colors, Icon, Chip, Empty, Button, Sheet } from "../components/ui";
 import { PriceMap } from "../components/PriceMap";
 import type { Coordinate, Price } from "../types";
 
 export function Compare({
-  records,
+  version,
   onRefresh,
   syncMessage,
   mapOpen,
   onCloseMap,
 }: {
-  records: Price[];
+  // 가계부를 서버에 저장할 때마다 바뀌어, 방금 저장한 영수증도 다시 조회합니다.
+  version: number;
   onRefresh: () => Promise<void>;
   syncMessage: string;
   mapOpen: boolean;
   onCloseMap: () => void;
 }) {
-  const [query, setQuery] = useState("코카콜라 500ml"),
-    [searched, setSearched] = useState("코카콜라 500ml");
+  const [query, setQuery] = useState("도리토스"),
+    [searched, setSearched] = useState("도리토스");
   const [location, setLocation] = useState<Coordinate>(DEMO_LOCATION),
     [demo, setDemo] = useState(true),
     [locating, setLocating] = useState(false),
     [message, setMessage] = useState("");
   const [selected, setSelected] = useState<string | null>(null),
     [sort, setSort] = useState("가격순");
-  const [currency, setCurrency] = useState("EUR");
+  const [currency, setCurrency] = useState("JPY");
   const [category, setCategory] = useState<string | null>(null),
     [categorySort, setCategorySort] = useState("가격순");
-  const effectiveCurrency = demo ? "EUR" : currency;
-  const prices = useMemo(
-    () =>
-      comparePrices(
-        demo ? DEMO_PRICES : records,
-        searched,
-        location,
-        effectiveCurrency,
-      ),
-    [records, searched, location, demo, effectiveCurrency],
-  );
+  const [rows, setRows] = useState<Price[]>([]),
+    [loading, setLoading] = useState(false),
+    [loadError, setLoadError] = useState("");
+  // 신주쿠 시연 가데이터는 엔화(JPY)로 쌓여 있습니다.
+  const effectiveCurrency = demo ? "JPY" : currency;
+  // 서버가 반경 3km 안의 공유 영수증을 매장·상품별로 묶어 돌려줍니다. 카테고리를 고르면 카테고리, 아니면 검색어로 찾습니다.
+  useEffect(() => {
+    if (!category && !searched) {
+      setRows([]);
+      setLoadError("");
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    fetchPrices({
+      currency: effectiveCurrency,
+      location,
+      ...(category ? { category, sort: categorySort } : { q: searched }),
+    })
+      .then((result) => {
+        if (!active) return;
+        setRows(result);
+        setLoadError("");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRows([]);
+        setLoadError(
+          "가격 기록을 불러오지 못했어요. 서버 연결과 검색어를 확인해 주세요.",
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [category, categorySort, searched, location, effectiveCurrency, version]);
+  const prices = category ? [] : rows,
+    browsed = category ? rows : [];
   const sorted =
     sort === "거리순"
       ? [...prices].sort((a, b) => a.distance - b.distance)
       : prices;
-  const browsed = useMemo(
-    () =>
-      category
-        ? browseCategory(
-            demo ? DEMO_PURCHASES : records,
-            category,
-            location,
-            effectiveCurrency,
-            categorySort,
-          )
-        : [],
-    [category, categorySort, records, location, demo, effectiveCurrency],
-  );
-  const shown = category ? browsed : prices;
+  const shown = rows;
   const selectedPrice = shown.find((p) => p.id === selected);
   const categoryIcon =
     BROWSE_CATEGORIES.find((c) => c.name === category)?.icon || "bag";
@@ -158,7 +172,7 @@ export function Compare({
       </View>
       <View style={s.suggestions}>
         <Text style={s.suggestionLabel}>빠른 검색</Text>
-        {["코카콜라 500ml", "에비앙 500ml"].map((q) => (
+        {["도리토스", "하다라보", "킷캣 말차"].map((q) => (
           <Pressable
             accessibilityRole="button"
             key={q}
@@ -220,7 +234,7 @@ export function Compare({
       <View style={s.locationRow}>
         <Icon name="pin" color={colors.primary} size={15} />
         <Text style={s.locationText}>
-          {demo ? "파리 중심부 · 시연 위치" : "현재 위치 · 반경 3km"}
+          {demo ? "신주쿠역 · 시연 위치 · 반경 3km" : "현재 위치 · 반경 3km"}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -242,6 +256,18 @@ export function Compare({
           {message}
         </Text>
       ) : null}
+      {loadError ? (
+        <Text accessibilityRole="alert" style={s.error} testID="prices-error">
+          {loadError}
+        </Text>
+      ) : null}
+      {loading && (
+        <ActivityIndicator
+          color={colors.primary}
+          style={{ marginBottom: 12 }}
+          testID="prices-loading"
+        />
+      )}
       {category ? (
         <>
           <View style={s.resultsHead}>
@@ -388,9 +414,6 @@ export function Compare({
                       </View>
                       <Text style={[s.storeDistance, { fontSize: 8 }]}>
                         {p.product}
-                        {p.original && p.original !== p.product
-                          ? ` · ${p.original}`
-                          : ""}
                       </Text>
                       <Text style={s.storeDistance}>
                         {p.distance < 1000
@@ -459,8 +482,8 @@ export function Compare({
           <Text style={s.sharingTitle}>나의 기록이 누군가의 좋은 선택으로</Text>
         </View>
         <Text style={s.sharingText}>
-          공유에 동의한 상품 가격만 모아요. 영수증 사진과 개인 결제정보는
-          공유하지 않아요.
+          가계부에 저장한 영수증의 매장·상품·개당 가격·구매일이 모여요. 영수증
+          사진과 개인 결제정보는 공유하지 않아요.
         </Text>
       </View>
       <View style={{ gap: 10, marginTop: 16 }}>
@@ -475,7 +498,7 @@ export function Compare({
         )}
         {!demo && (
           <Button
-            title="파리 시연 데이터 보기"
+            title="신주쿠 시연 위치로 보기"
             variant="soft"
             onPress={() => {
               setDemo(true);
@@ -485,7 +508,9 @@ export function Compare({
           />
         )}
         <Text style={s.sync}>
-          {demo ? "시연 매장의 이름·가격·위치는 모두 가상이에요." : syncMessage}
+          {demo
+            ? `신주쿠 주변 매장·가격은 시연용 가데이터예요. ${syncMessage}`
+            : syncMessage}
         </Text>
       </View>
       {mapOpen && (
@@ -505,11 +530,11 @@ export function Compare({
             <View style={s.mapDot} />
             <Text style={s.mapCaptionText}>
               {demo
-                ? "파란 점은 시연 기준 위치예요"
+                ? "파란 점은 시연 위치(신주쿠역)예요"
                 : "파란 점은 현재 위치예요"}
             </Text>
             <Text style={s.demoBadge}>
-              {demo ? "가상 매장 · 시연 가격" : "공유 영수증 기록"}
+              {demo ? "시연 가데이터 · 공유 영수증" : "공유 영수증 기록"}
             </Text>
           </View>
           {!shown.length && (

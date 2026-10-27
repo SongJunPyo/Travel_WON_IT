@@ -41,17 +41,34 @@ export async function loadLedger(
 ): Promise<TravelState | null> {
   return (await request("/ledger", { headers: auth(deviceToken) })).state;
 }
-/** 가계부 전체를 서버에 저장하고, 공유 동의한 품목으로 만든 가격 비교 기록을 받아옵니다. */
+/** 이 기기의 가계부 전체를 서버에 저장합니다. 서버는 시연 영수증을 빼고 통째로 교체합니다. */
 export async function syncLedger(
   state: TravelState,
   deviceToken: string,
-): Promise<Price[]> {
+): Promise<void> {
   await request("/ledger", {
     method: "PUT",
     headers: auth(deviceToken),
     body: JSON.stringify(state),
   });
-  return (await request("/prices")).records;
+}
+/** PAGE 2: 위치 반경 안의 공유 영수증을 카테고리(category)나 상품명(q)으로 찾아 매장·상품별 최근 가격을 받습니다. */
+export async function fetchPrices(params: {
+  currency: string;
+  location: { latitude: number; longitude: number };
+  category?: string;
+  q?: string;
+  sort?: string;
+}): Promise<Price[]> {
+  const query = new URLSearchParams({
+    currency: params.currency,
+    latitude: String(params.location.latitude),
+    longitude: String(params.location.longitude),
+  });
+  if (params.category) query.set("category", params.category);
+  if (params.q) query.set("q", params.q);
+  if (params.sort) query.set("sort", params.sort);
+  return (await request(`/prices?${query}`)).records;
 }
 /** 적용 환율 칸에 채울 참고 환율(1 외화당 원화)과 고시일을 받습니다. */
 export async function fetchExchangeRate(

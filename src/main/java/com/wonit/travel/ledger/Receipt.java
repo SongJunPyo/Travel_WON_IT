@@ -16,6 +16,7 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import org.hibernate.annotations.OnDelete;
@@ -46,7 +47,7 @@ public class Receipt {
     @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, orphanRemoval = true) @OrderBy("id")
     private List<ReceiptItem> items = new ArrayList<>();
     protected Receipt() {}
-    Receipt(Device device) { this.device = device; this.createdAt = LocalDateTime.now(); }
+    Receipt(Device device, LocalDateTime createdAt) { this.device = device; this.createdAt = createdAt; }
     // 검증을 마친 값으로 덮어씁니다. 품목은 통째로 바꿉니다.
     void update(ReceiptData r, Trip trip) {
         this.trip = trip;
@@ -59,9 +60,10 @@ public class Receipt {
         r.items().forEach(i -> items.add(new ReceiptItem(this, i)));
     }
     ReceiptData data() {
-        return new ReceiptData(id, storeName, storeAddress, latitude == null ? null : new ReceiptData.Location(latitude, longitude),
-                ledgerCategory, browseCategory, purchasedDate.toString(), currency, rate, totalMinor, shareConsent,
-                items.stream().map(ReceiptItem::data).toList(), createdAt.toString());
+        return new ReceiptData(String.valueOf(id), storeName, storeAddress,
+                latitude == null ? null : new ReceiptData.Location(latitude, longitude),
+                ledgerCategory, browseCategory, purchasedDate.toString(), currency, rate, totalMinor, shareConsent, false,
+                items.stream().map(ReceiptItem::data).toList(), createdAt.atZone(ZoneId.systemDefault()).toInstant().toString());
     }
     public Long id() { return id; }
     public String storeName() { return storeName; }

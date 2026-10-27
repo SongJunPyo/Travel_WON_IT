@@ -41,9 +41,8 @@ public class PriceService {
         double dLat = meters / 111_320.0, dLng = meters / (111_320.0 * Math.cos(Math.toRadians(latitude)));
         Map<String, ReceiptItem> latest = new HashMap<>();
         Map<String, Integer> counts = new HashMap<>();
-        for (ReceiptItem i : items.findShared(currency, latitude - dLat, latitude + dLat, longitude - dLng, longitude + dLng)) {
+        for (ReceiptItem i : items.findShared(currency, category, latitude - dLat, latitude + dLat, longitude - dLng, longitude + dLng)) {
             Receipt r = i.receipt();
-            if (category != null && !category.equals(r.browseCategory())) continue;
             if (query != null && !matches(i, query, key)) continue;
             if (distance(latitude, longitude, r) > meters) continue;
             String group = compact(r.storeName()) + "|" + compact(r.storeAddress()) + "|" + i.normalizedName();
