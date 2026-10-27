@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,14 @@ import Svg, { Circle } from "react-native-svg";
 import {
   CATEGORIES,
   summarize,
+  dailySpending,
   spendingInsight,
   won,
   money,
   toWon,
 } from "../domain.mjs";
 import { colors, Icon, Chip, Empty } from "../components/ui";
+import { countryInfo } from "../countries.mjs";
 import type { Receipt, TravelState } from "../types";
 
 export function Ledger({
@@ -31,10 +33,23 @@ export function Ledger({
   onReceipt: (r: Receipt) => void;
 }) {
   const [filter, setFilter] = useState("전체"),
+    [selectedDate, setSelectedDate] = useState<string | null>(null),
     [comparison, setComparison] = useState(false);
   const summary = summarize(state.receipts, state.trip.budget);
+  const days = useMemo(
+    () => dailySpending(state.receipts, state.trip.start, state.trip.end),
+    [state.receipts, state.trip.start, state.trip.end],
+  );
+  useEffect(() => {
+    setSelectedDate(null);
+  }, [state.trip.start, state.trip.end]);
+  const country = countryInfo(state.trip.country);
   const filtered = state.receipts
-    .filter((r) => filter === "전체" || r.category === filter)
+    .filter(
+      (r) =>
+        (filter === "전체" || r.category === filter) &&
+        (!selectedDate || r.date === selectedDate),
+    )
     .sort(
       (a, b) =>
         b.date.localeCompare(a.date) ||
@@ -58,9 +73,15 @@ export function Ledger({
         style={s.trip}
       >
         <View style={s.tripIcon}>
-          <Icon name="globe" size={18} color={colors.primary} />
+          <Text
+            style={s.tripFlag}
+            accessibilityLabel={country.flag === "🌐" ? "여행 나라" : `${country.name} 국기`}
+            testID="trip-flag"
+          >
+            {country.flag}
+          </Text>
         </View>
-        <Text style={s.tripCity}>{state.trip.city} 여행</Text>
+        <Text style={s.tripCountry} numberOfLines={1}>{country.name} 여행</Text>
         <Text style={s.tripDate}>
           {state.trip.start.slice(5).replace("-", ".")} –{" "}
           {state.trip.end.slice(5).replace("-", ".")}
@@ -214,12 +235,12 @@ export function Ledger({
         {comparison && (
           <View testID="comparison-table" style={s.comparison}>
             <Text style={s.comparisonNotice}>
-              시연 평균 · 같은 도시·여행 기간을 가정한 가상 데이터
+              사용자 평균 · 현재는 시연용 가상 데이터예요.
             </Text>
             <View style={s.tableRow}>
               <Text style={[s.tableText, { flex: 1.2 }]}>카테고리</Text>
               <Text style={s.tableText}>나</Text>
-              <Text style={s.tableText}>시연 평균</Text>
+              <Text style={s.tableText}>사용자 평균</Text>
               <Text style={s.tableText}>차이</Text>
             </View>
             {summary.categories.map((c) => (
@@ -255,10 +276,48 @@ export function Ledger({
       <View style={s.sectionHead}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
           <Text style={s.sectionTitle}>나의 영수증</Text>
-          <Text style={s.count}>{state.receipts.length}</Text>
+          <Text style={s.count} testID="receipt-count">{filtered.length}</Text>
         </View>
         <Text style={s.smallCaption}>최근 구매일 순</Text>
       </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.dayScroll}
+        contentContainerStyle={s.dayScrollContent}
+        testID="daily-spending"
+      >
+        {[
+          { date: null, total: summary.total, count: state.receipts.length },
+          ...days,
+        ].map((day) => {
+          const active = selectedDate === day.date;
+          const label = day.date
+            ? `${day.date.slice(5).replace("-", "/")} 소비`
+            : "전체";
+          return (
+            <Pressable
+              key={day.date || "all"}
+              accessibilityRole="button"
+              accessibilityLabel={`${day.date || "전체"} 소비 ${won(day.total)}, 영수증 ${day.count}건`}
+              accessibilityState={{ selected: active }}
+              aria-selected={active}
+              onPress={() => setSelectedDate(day.date)}
+              testID={`spending-day-${day.date || "all"}`}
+              style={({ pressed }) => [
+                s.dayCard,
+                active && s.dayCardActive,
+                pressed && { opacity: 0.75 },
+              ]}
+            >
+              <Text style={[s.dayLabel, active && s.dayLabelActive]}>{label}</Text>
+              <Text style={[s.dayTotal, active && s.dayLabelActive]}>{won(day.total)}</Text>
+              <Text style={s.dayCount}>{day.count}건</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <Text style={s.dayHint}>날짜를 선택하면 그날의 영수증을 볼 수 있어요.</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -271,10 +330,11 @@ export function Ledger({
             title={name}
             active={filter === name}
             onPress={() => setFilter(name)}
+            testID={`receipt-category-${name}`}
           />
         ))}
       </ScrollView>
-      <View style={s.receipts}>
+      <View style={s.receipts} testID="receipts-list">
         {filtered.length ? (
           filtered.map((r) => {
             const cat = CATEGORIES.find((c) => c.name === r.category)!;
@@ -315,8 +375,10 @@ export function Ledger({
           })
         ) : (
           <Empty
-            title="아직 기록이 없어요"
-            detail="영수증을 추가해 여행의 첫 소비를 기록해 보세요."
+            title={selectedDate || filter !== "전체" ? "조건에 맞는 영수증이 없어요" : "아직 기록이 없어요"}
+            detail={selectedDate
+              ? "이 날짜의 영수증을 등록하거나 다른 날짜를 선택해 보세요."
+              : "영수증을 추가해 여행의 첫 소비를 기록해 보세요."}
           />
         )}
       </View>
@@ -353,7 +415,8 @@ const s = StyleSheet.create({
     marginBottom: 18,
   },
   tripIcon: { padding: 5, backgroundColor: "#E5F0FA", borderRadius: 8 },
-  tripCity: { fontSize: 13, fontWeight: "700", color: colors.ink },
+  tripFlag: { fontSize: 18 },
+  tripCountry: { fontSize: 13, fontWeight: "700", color: colors.ink, flexShrink: 1 },
   tripDate: { marginLeft: "auto", fontSize: 11, color: colors.muted },
   hero: {
     borderRadius: 23,
@@ -541,6 +604,24 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
+  dayScroll: { marginHorizontal: -24, marginBottom: 8 },
+  dayScrollContent: { paddingHorizontal: 24, gap: 8 },
+  dayCard: {
+    minWidth: 112,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#fff",
+    gap: 7,
+  },
+  dayCardActive: { backgroundColor: colors.soft, borderColor: colors.primary },
+  dayLabel: { fontSize: 11, color: colors.muted },
+  dayLabelActive: { color: colors.primary },
+  dayTotal: { fontSize: 15, fontWeight: "700", color: colors.ink },
+  dayCount: { fontSize: 10, color: colors.muted },
+  dayHint: { fontSize: 10, lineHeight: 17, color: colors.muted, marginBottom: 14 },
   receipts: {
     backgroundColor: "#fff",
     borderRadius: 20,
