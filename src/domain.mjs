@@ -1,7 +1,7 @@
 export const CATEGORIES = [
-  { name: "숙박", color: "#0067AC", icon: "bed", average: 42 },
-  { name: "쇼핑", color: "#6A9FE8", icon: "bag", average: 15 },
   { name: "음식", color: "#67C7C1", icon: "food", average: 18 },
+  { name: "쇼핑", color: "#6A9FE8", icon: "bag", average: 15 },
+  { name: "숙박", color: "#0067AC", icon: "bed", average: 42 },
   { name: "교통", color: "#A8CBE9", icon: "train", average: 12 },
   { name: "관광", color: "#FFC778", icon: "ticket", average: 10 },
   { name: "기타", color: "#CBD5E1", icon: "more", average: 3 },

@@ -56,7 +56,7 @@ const seedReceipt = (
   store,
   address: `${store} (가상 주소)`,
   location: { latitude, longitude },
-  category: browseCategory === "화장품" ? "쇼핑" : "음식",
+  category: browseCategory === "식당" ? "음식" : "쇼핑",
   browseCategory,
   date,
   currency: "JPY",
@@ -167,6 +167,21 @@ const seedReceipts = [
       139.702,
     ),
   ),
+  // '더 보기' 확인용: 관광 카테고리 매장 7곳.
+  ...Array.from({ length: 7 }, (_, i) => ({
+    ...seedReceipt(
+      `s10-${i}`,
+      `전망대 ${i + 1}`,
+      "2026-10-26",
+      null,
+      "展望台 入場券",
+      "전망대 입장권",
+      1000 + i * 100,
+      35.69 + i * 0.001,
+      139.7,
+    ),
+    category: "관광",
+  })),
 ];
 // 8787을 다른 서버가 쓰고 있으면 API_PORT로 바꿉니다. 웹 빌드도 EXPO_PUBLIC_API_URL로 같은 주소를 써야 합니다.
 const apiPort = process.env.API_PORT || "8787";
@@ -596,10 +611,14 @@ try {
   await click("search-submit");
   await check(`${storeCards}.length===2`, "다른 상품 검색");
   const firstBrowse = `document.querySelector('[data-testid^=browse-]:not([data-testid^=browse-sort])')?.textContent||''`;
-  await click("category-식당");
+  await click("category-음식");
   await check(
     `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('규동 미나토 B')`,
     "카테고리 선택 시 서버 거래 기록을 가격순으로 표시",
+  );
+  await check(
+    `!!(document.querySelector('[data-testid="category-쇼핑"]').compareDocumentPosition(document.querySelector('[data-testid="category-results"]'))&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(document.querySelector('[data-testid="category-results"]').compareDocumentPosition(document.querySelector('[data-testid="category-숙박"]'))&Node.DOCUMENT_POSITION_FOLLOWING)`,
+    "카테고리 결과는 고른 타일 줄 바로 아래 표시",
   );
   await click("browse-sort-구매수");
   await check(`${firstBrowse}.includes('구매 3회')`, "카테고리 구매수 정렬");
@@ -609,11 +628,23 @@ try {
     `document.querySelector('[data-testid="browse-sort-거리순"]').getAttribute('aria-disabled')==='true'`,
     "거리순 필터는 비활성",
   );
-  await click("category-식당");
+  await click("category-음식");
   await check(
     `${storeCards}.length===2`,
     "카테고리 해제 후 상품 검색 결과 복귀",
   );
+  const browseCards = `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])')`;
+  await click("category-관광");
+  await check(
+    `${browseCards}.length===5&&!!document.querySelector('[data-testid="show-more"]')`,
+    "결과는 5개만 보이고 더 보기 버튼 표시",
+  );
+  await click("show-more");
+  await check(
+    `${browseCards}.length===7&&!document.querySelector('[data-testid="show-more"]')`,
+    "더 보기를 누르면 남은 결과 표시",
+  );
+  await click("category-관광");
   await send("Browser.grantPermissions", {
     origin,
     permissions: ["geolocation"],
@@ -716,20 +747,19 @@ try {
     `document.querySelector('[data-testid="receipt-store"]').value==='テスト写真店'&&document.querySelector('[data-testid="receipt-store-ko"]').value==='테스트 사진 매장'`,
     "매장명 원문·한국어 번역 두 칸 채움",
   );
-  await click("browse-category-식당");
   await click("save-receipt");
   await check(
-    `${saved}.receipts.at(-1).store==='テスト写真店'&&${saved}.receipts.at(-1).storeKo==='테스트 사진 매장'&&${saved}.receipts.at(-1).browseCategory==='식당'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,
+    `${saved}.receipts.at(-1).store==='テスト写真店'&&${saved}.receipts.at(-1).storeKo==='테스트 사진 매장'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,
     "사진 분석 상품 내역 저장",
   );
-  // 다른 여행자 화면: 한국어 매장명으로 검색되고, 고른 카테고리(식당) 둘러보기에도 나옵니다.
+  // 다른 여행자 화면: 한국어 매장명으로 검색되고, 가계부 카테고리(음식) 둘러보기에도 나옵니다.
   let found = false;
   for (let i = 0; i < 50 && !found; i++) {
     const byName = await nearPrices("테스트 사진");
     const byCategory = (
       await (
         await fetch(
-          `${api}/prices?currency=JPY&latitude=35.6896&longitude=139.7006&category=${encodeURIComponent("식당")}`,
+          `${api}/prices?currency=JPY&latitude=35.6896&longitude=139.7006&category=${encodeURIComponent("음식")}`,
         )
       ).json()
     ).records;
