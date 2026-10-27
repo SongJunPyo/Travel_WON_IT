@@ -54,3 +54,52 @@
 - 운영용 인증·DB·삭제 정책 및 HTTPS·네트워크 배포 구성
 - 실제 이용자 데이터로 도시·기간별 평균을 산출할 충분한 표본 확보
 - iOS·Android 서명·앱 배포 구성
+
+## MySQL 가계부 DB · Claude OCR 전환 (2026-10-27)
+
+- 가계부(기기·여행·영수증·품목)를 MySQL에 저장합니다. 가게·상품·가게-상품(최근 가격)을 분리했고 구조는 `docs/schema.sql`과 같습니다. `shared_prices` 테이블과 `PUT /prices`는 없앴고, `GET /prices`는 공유 동의 품목에서 계산합니다.
+- 영수증 사진 인식을 98_HACKATHON/my-hackathon과 같은 방식(Spring AI `ChatClient` + Claude, `BeanOutputConverter`, multipart `POST /api/receipts/ocr`, `ocr_history`, `{errors:[…]}` 오류 형식)으로 바꾸고, 가계부에 필요한 상품별 이름·수량·단가·통화·카테고리를 추가했습니다.
+- 라이브러리: `spring-ai-model` → `spring-ai-starter-model-anthropic`, `mysql-connector-j` 추가, H2는 테스트 전용.
+
+| 항목                   | 결과                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `./gradlew test`       | 22개 통과 (API·가계부 저장·가격 계산·OCR 17개, 초안 변환·리더 5개). H2 MySQL 모드          |
+| 실제 DB 실행           | 서버 JAR를 MariaDB에 연결해 테이블 9개 생성, 가계부 저장·조회·가격 비교·OCR 오류 응답 확인 |
+| `docs/schema.sql`      | MariaDB에서 실행해 테이블 9개 생성 확인                                                    |
+| `npm test`·`typecheck` | 18개 통과 · 통과                                                                           |
+| 브라우저 검증          | 42개 통과 (Chromium, MariaDB, Claude 응답은 로컬 대체)                                     |
+
+실제 Claude 호출(과금)과 MySQL 8 서버 자체에서의 실행은 확인하지 않았습니다(호환 DB인 MariaDB로 확인).
+
+## 한국수출입은행 환율 · 소수 환율 (2026-10-27)
+
+- 새 영수증을 열거나 결제 통화를 바꾸거나 사진 인식 결과가 들어오면 적용 환율 칸에 오늘 환율을 기본값으로 자동으로 채웁니다(직접 고친 값은 덮어쓰지 않음, 저장된 영수증은 기존 환율 유지). 서버 `GET /api/exchange-rates/{currency}`가 한국수출입은행 현재환율 API(`data=AP01`)의 매매기준율을 돌려줍니다. 쉼표를 지우고 `JPY(100)`은 100으로 나눕니다. 오늘 고시가 없으면 최대 7일 전까지 거슬러 올라가고, 고시일 응답은 메모리에 캐시합니다(오늘 빈 응답은 10분 뒤 재조회). 키는 `KOREAEXIM_API_KEY` 환경 변수에서만 읽고, 실패하면 503 `RATE_UNAVAILABLE`입니다. 새 라이브러리는 없습니다(`RestClient`).
+- 적용 환율을 소수 4자리까지 받습니다. 앱은 환율×10,000 정수와 BigInt, 서버는 `BigDecimal`, DB는 `DECIMAL(14,4)`이며 원화는 끝까지 계산한 뒤 반올림합니다(1000엔 × 8.3983 = 8,398원). 기존 정수 환율은 그대로 유효합니다.
+- 기존 DB의 `rate`가 BIGINT이면 `docs/schema.sql` 끝의 ALTER 문을 한 번 실행해야 합니다. MySQL은 BIGINT 컬럼에 8.3983을 넣으면 오류 없이 8로 저장합니다(임시 테이블로 확인).
+
+| 항목                         | 결과                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `./gradlew test`             | 35개 통과 (API 22개, 초안 변환 5개, 환율 서비스 8개). 외부 환율 API는 가짜 응답                       |
+| `npm test`·`typecheck`       | 21개 통과 · 통과                                                                                       |
+| 실제 환율 API                | 빌드한 환율 클래스로 호출: EUR 1477.87 · USD 1322.6 · JPY 8.3983 · THB 39.16 · KRW 1 (10/27 고시)      |
+| 실제 MySQL                   | `.env`의 DB는 `rate`가 이미 `decimal(12,4)`. 임시 테이블로 BIGINT → `DECIMAL(14,4)` ALTER와 값 유지 확인 |
+| 웹 화면 (헤드리스 Chrome)    | 새 영수증을 열면 자동 조회, 실패 시 여행 설정 환율 유지와 빨간 안내, 직접 입력 우선, 1477.87 환율 저장 후 목록 1,478원, 콘솔 오류 없음 |
+
+브라우저 검증(`scripts/browser-check.mjs`)은 `--KOREAEXIM_API_KEY=`로 실제 환율 API를 부르지 않습니다. 새 서버 코드로 띄운 상태에서 실제 값이 자동으로 채워지는 것과, 고시 전(오전) 오늘 날짜 조회가 빈 응답인지는 확인하지 않았습니다.
+
+## main 병합 (2026-10-28)
+
+- main(`93387ea`까지)과 병합했습니다. DB는 main 방식입니다: 기본 실행은 H2 파일 DB, MySQL(`travel_won`)은 `mysql` 프로필(`ddl-auto=none`)에서만 씁니다. 위 두 항목의 `docs/schema.sql`·ALTER 안내는 더 이상 해당하지 않습니다.
+- 서버 저장은 main의 4개 테이블 구현(`ledger/`·`LedgerController`·`price/`, [db-design.md](db-design.md))을 그대로 씁니다. 이 브랜치의 9개 테이블용 코드(`ledger/` 엔티티·`CategorySeeder`·지오코딩, `price/`, OCR 이력 `ocr_history`, `docs/schema.sql`)는 지웠습니다.
+- OCR은 이 브랜치의 Claude(`POST /api/receipts/ocr`)를 유지하고 main의 OpenAI `OcrService`(`POST /ocr`)는 지웠습니다. 오늘 환율(`GET /api/exchange-rates/{currency}`)도 이 브랜치 그대로입니다.
+- 앱은 아직 `PUT /ledger`(가계부 전체 저장)로 동기화해 main의 새 API(`PUT /trip`·`POST /receipts` 등)와 맞지 않습니다(405). 앱을 새 API로 바꾸기 전까지는 기기 기록만 표시합니다. 또 앱은 동의 절차 없이 공유하지만 서버 설계는 선택 동의·매장 위치 필수라, 앱 전환 때 맞춰야 합니다.
+- 공용 `travel_won`은 이 브랜치 서버가 `ddl-auto=update`로 테이블 5개·컬럼 9개를 추가한 상태였습니다. 백업한 뒤 테이블 9개를 모두 지워 비워 두었고, 이후 팀원이 `db-schema-mysql.sql`로 4개 테이블을 다시 만들고 가데이터를 넣었습니다(10/28 00:36).
+- 브라우저 검증은 H2 메모리 DB로 서버를 띄우고, 서버 가격 공유(`/prices`)·주소 좌표 변환 확인 2개는 앱을 새 API로 바꾼 뒤 되살립니다.
+
+| 항목                   | 결과                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `./gradlew test`       | 33개 통과 (API 19개: 가계부·가격 13·OCR 4·환율 2, 초안 변환 5개, 환율 8개, MySQL 프로필 1개)              |
+| `npm test`·`typecheck` | 21개 통과 · 통과                                                                                       |
+| 기본 실행(H2 파일 JAR) | 새 기기 `/ledger` 빈 가계부, `POST /receipts` 환율 8.3983 저장, `/prices` 1건, 실제 환율(EUR 1477.87), `/ocr` 404, 앱의 `PUT /ledger` 405 |
+
+`npm run test:browser`는 실행하지 않았습니다.

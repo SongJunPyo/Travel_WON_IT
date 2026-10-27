@@ -10,7 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
     private final String[] origins;
     public WebConfig(@Value("${app.allowed-origins}") String origins) {
-        this.origins = Arrays.stream(origins.split(",")).map(String::trim).toArray(String[]::new);
+        this.origins = Arrays.stream(origins.split(",")).map(origin -> origin.trim()).toArray(String[]::new);
     }
     @Override
     public void addCorsMappings(CorsRegistry registry) {

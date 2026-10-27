@@ -29,7 +29,7 @@ import {
   publicPrices,
   validateReceipt,
 } from "./src/domain.mjs";
-import { syncPrices } from "./src/api";
+import { loadLedger, syncLedger } from "./src/api";
 import type { Receipt, TravelState, Price } from "./src/types";
 
 const STORAGE_KEY = "travel-wonhae-mobile-v1",
@@ -69,8 +69,11 @@ function TravelApp() {
         token.current =
           savedToken || `${Crypto.randomUUID()}${Crypto.randomUUID()}`;
         if (!savedToken) await AsyncStorage.setItem(TOKEN_KEY, token.current);
-        if (saved) {
-          const parsed = JSON.parse(saved);
+        // 기기에 저장된 가계부가 없으면 서버(MySQL)에 저장된 이 기기의 가계부를 불러옵니다.
+        let source = saved ? JSON.parse(saved) : null;
+        if (!source) source = await loadLedger(token.current).catch(() => null);
+        if (source) {
+          const parsed = source;
           if (
             parsed.version !== 1 ||
             !parsed.trip ||
@@ -109,11 +112,13 @@ function TravelApp() {
   }, [state, loaded, storageFailed]);
   async function refresh() {
     if (!token.current || storageFailed) return;
-    // 전체 공개 스냅샷을 순서대로 동기화해 삭제·동의 철회와 재시도를 함께 처리합니다.
-    const snapshot = state.receipts.flatMap(publicPrices);
+    // 가계부 전체를 순서대로 서버 DB에 저장해 삭제·동의 철회와 재시도를 함께 처리합니다.
+    // 가격 비교 기록은 서버가 공유 동의한 품목에서 계산합니다.
+    const current = state,
+      snapshot = current.receipts.flatMap(publicPrices);
     syncQueue.current = syncQueue.current.then(async () => {
       try {
-        setRecords(await syncPrices(snapshot, token.current));
+        setRecords(await syncLedger(current, token.current));
         setSyncMessage("공유 가격을 최신 상태로 확인했어요.");
       } catch {
         setRecords(snapshot);
@@ -126,7 +131,7 @@ function TravelApp() {
   }
   useEffect(() => {
     if (loaded) void refresh();
-  }, [state.receipts, loaded, storageFailed]);
+  }, [state, loaded, storageFailed]);
   useEffect(() => {
     if (!loaded || storageFailed) return;
     const subscription = AppState.addEventListener("change", (status) => {

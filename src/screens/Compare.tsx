@@ -245,7 +245,9 @@ export function Compare({
       {category ? (
         <>
           <View style={s.resultsHead}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
               <Text style={s.sectionTitle}>{category}</Text>
               <Text style={s.count}>{browsed.length}</Text>
             </View>
@@ -272,7 +274,10 @@ export function Compare({
           </View>
           <Text style={s.productTitle}>
             다른 여행자의 영수증 기록
-            <Text style={s.unitNote}> · 최근 구매가격 · {effectiveCurrency}</Text>
+            <Text style={s.unitNote}>
+              {" "}
+              · 최근 구매가격 · {effectiveCurrency}
+            </Text>
           </Text>
           {browsed.length ? (
             browsed.map((p) => (
@@ -318,7 +323,9 @@ export function Compare({
       ) : (
         <>
           <View style={s.resultsHead}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
               <Text style={s.sectionTitle}>주변 매장</Text>
               <Text style={s.count}>{prices.length}</Text>
             </View>
@@ -343,7 +350,9 @@ export function Compare({
                 (row) =>
                   normalizeProduct(row.product) === normalizeProduct(p.product),
               );
-              const lowest = Math.min(...comparable.map((row) => row.unitMinor));
+              const lowest = Math.min(
+                ...comparable.map((row) => row.unitMinor),
+              );
               const cheapest = p.unitMinor === lowest,
                 active = selected === p.id;
               return (
@@ -379,6 +388,9 @@ export function Compare({
                       </View>
                       <Text style={[s.storeDistance, { fontSize: 8 }]}>
                         {p.product}
+                        {p.original && p.original !== p.product
+                          ? ` · ${p.original}`
+                          : ""}
                       </Text>
                       <Text style={s.storeDistance}>
                         {p.distance < 1000
@@ -492,7 +504,9 @@ export function Compare({
           <View style={s.mapCaption}>
             <View style={s.mapDot} />
             <Text style={s.mapCaptionText}>
-              {demo ? "파란 점은 시연 기준 위치예요" : "파란 점은 현재 위치예요"}
+              {demo
+                ? "파란 점은 시연 기준 위치예요"
+                : "파란 점은 현재 위치예요"}
             </Text>
             <Text style={s.demoBadge}>
               {demo ? "가상 매장 · 시연 가격" : "공유 영수증 기록"}
@@ -630,7 +644,12 @@ const s = StyleSheet.create({
   },
   mapCaptionText: { fontSize: 9, color: colors.muted, flex: 1 },
   demoBadge: { color: "#8AA0B4", fontSize: 8 },
-  mapEmpty: { fontSize: 11, color: colors.muted, marginTop: 12, lineHeight: 18 },
+  mapEmpty: {
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 12,
+    lineHeight: 18,
+  },
   selected: {
     backgroundColor: "#E6F2FB",
     borderRadius: 12,

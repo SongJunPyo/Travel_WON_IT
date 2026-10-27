@@ -6,6 +6,7 @@
   1. 2026-10-27에 정리한 서비스 요구사항 (1장)
   2. AGENTS.md가 지정한 참고 저장소 [WONIT-A/05_springAI](https://github.com/WONIT-A/05_springAI.git)의 구조 (4장)
 - 변경 사항: 코드는 고치지 않았고 이 문서만 추가했습니다. `SPEC.md`는 승인된 명세이므로 수정하지 않았습니다.
+- 갱신(2026-10-28): 영수증 OCR을 Claude(Spring AI `ChatClient`, multipart `POST /api/receipts/ocr`, `ANTHROPIC_API_KEY`)로 바꿨습니다. 2~4장의 OpenAI 관련 서술은 검토 당시 기준이고, 데이터 흐름 그림과 10.4 시연 안내는 Claude 기준으로 고쳤습니다.
 
 ## 요약
 
@@ -57,7 +58,7 @@
 **데이터 흐름**
 
 ```text
-[PAGE 1 가계부] ── 사진(base64) ──▶ POST /ocr ─▶ OcrService ─▶ OpenAiReceiptGateway ─▶ OpenAI Responses API
+[PAGE 1 가계부] ── 사진(multipart) ──▶ POST /api/receipts/ocr ─▶ ReceiptOcrController ─▶ ClaudeReceiptReader ─▶ Claude (Spring AI ChatClient)
       │
       ├─ 영수증 전체 ─▶ AsyncStorage (이 기기에만 저장)
       │
@@ -362,11 +363,11 @@ frontend/       React 19 + Vite
 - **"촬영하기":** 앱 안에서 iPhone 카메라를 엽니다(`ImagePicker.launchCameraAsync`).
 - **"사진 선택":** 카메라 앱으로 미리 찍은 사진을 사진 보관함에서 고릅니다.
 
-사진은 서버의 `POST /ocr`로 전송됩니다. 서버가 OpenAI로 매장·구매일·상품·수량·단가를 추출하면, 사용자가 결과를 확인·수정한 뒤 저장합니다. 카메라·사진 권한 문구는 [app.config.ts](../app.config.ts)에 이미 설정돼 있습니다.
+사진은 서버의 `POST /api/receipts/ocr`(multipart)로 전송됩니다. 서버가 Claude로 매장·구매일·상품·수량·단가를 추출하면, 사용자가 결과를 확인·수정한 뒤 저장합니다. 카메라·사진 권한 문구는 [app.config.ts](../app.config.ts)에 이미 설정돼 있습니다.
 
 **준비할 것**
 
-1. `.env`에 `OPENAI_API_KEY`를 직접 넣고 `npm run server`로 서버를 켭니다. 지금은 키가 없어 503이 반환됩니다.
+1. `.env`에 `ANTHROPIC_API_KEY`를 직접 넣고 `npm run server`로 서버를 켭니다. 키가 없으면 503이 반환됩니다.
 2. iPhone이 서버에 접속할 수 있어야 합니다. 둘 중 하나를 고릅니다.
    - **같은 Wi-Fi:** `EXPO_PUBLIC_API_URL=http://<Mac의 LAN IP>:8787`. macOS 방화벽에서 Java의 연결 수신을 허용해야 합니다.
    - **HTTPS 주소:** 서버를 배포하거나 터널링 도구를 씁니다. 셀룰러에서도 동작하고 iOS 보안 정책(ATS) 문제를 피할 수 있습니다. 터널링 도구는 새 도구이므로 승인이 필요합니다.

@@ -11,8 +11,7 @@ class MysqlProfileTest {
     @Test void mysql_프로필은_접속정보를_환경값으로_받고_테이블을_자동_생성하지_않는다() {
         try (var context = new SpringApplicationBuilder(TravelWonhaeApplication.class).profiles("mysql")
                 .run("--server.port=0", "--DB_URL=jdbc:h2:mem:mysql-profile-check", "--DB_USERNAME=profile-user",
-                        "--DB_PASSWORD=profile-check", "--spring.datasource.driver-class-name=org.h2.Driver",
-                        "--app.openai-api-key=")) {
+                        "--DB_PASSWORD=profile-check", "--spring.datasource.driver-class-name=org.h2.Driver")) {
             var env = context.getEnvironment();
             assertThat(env.getProperty("spring.datasource.url")).isEqualTo("jdbc:h2:mem:mysql-profile-check");
             assertThat(env.getProperty("spring.datasource.username")).isEqualTo("profile-user");
