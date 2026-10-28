@@ -389,6 +389,45 @@ test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히�
   assert.equal(filled.start, "2026-10-24");
   assert.equal(filled.end, "2026-10-29");
 });
+test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환산을 넣는다", async () => {
+  const { ledgerCsv, ledgerCsvName } = await import("../src/domain.mjs");
+  const csv = ledgerCsv({
+    trip: { city: "도쿄" },
+    receipts: [
+      {
+        id: "a",
+        date: "2026-10-27",
+        store: "ローソン",
+        storeKo: "로손",
+        address: "新宿 3-1",
+        category: "음식",
+        currency: "JPY",
+        rate: 9.3277,
+        totalMinor: 380,
+        demo: false,
+        items: [
+          {
+            name: 'コカ・コーラ, "500ml"',
+            nameKo: "코카콜라 500ml",
+            quantity: 2,
+            unitMinor: 190,
+          },
+        ],
+      },
+    ],
+  });
+  assert.ok(csv.startsWith("﻿구매일,"));
+  const lines = csv.slice(1).split("\r\n");
+  assert.equal(lines.length, 2);
+  assert.equal(
+    lines[1],
+    '2026-10-27,ローソン,로손,新宿 3-1,음식,"コカ・コーラ, ""500ml""",코카콜라 500ml,2,190,380,JPY,9.3277,3545,380,3545,',
+  );
+  assert.equal(
+    ledgerCsvName({ city: "뉴 욕" }, "2026-10-28"),
+    "여행WON해_가계부_뉴_욕_2026-10-28.csv",
+  );
+});
 test("카테고리 둘러보기 거리순 정렬을 쓸 수 있다", async () => {
   const { BROWSE_SORTS } = await import("../src/domain.mjs");
   assert.equal(BROWSE_SORTS.find((s) => s.name === "거리순").ready, true);

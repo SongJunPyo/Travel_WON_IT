@@ -557,6 +557,19 @@ try {
     bodyHas("일본 여행") + "&&" + bodyHas("영수증으로 여행 정보를 채웠어요"),
     "자동으로 정한 여행 표시와 안내",
   );
+  // 가계부 CSV 내보내기: 웹에서는 파일로 내려받습니다.
+  await evaluate(
+    `window.__csv=null;const _c=URL.createObjectURL;URL.createObjectURL=(b)=>{window.__csv=b;return _c.call(URL,b)}`,
+  );
+  await click("export-csv");
+  await check(
+    bodyHas("파일로 내보냈어요") + `&&window.__csv&&window.__csv.size>0`,
+    "가계부 CSV 내보내기",
+  );
+  await check(
+    `window.__csv.arrayBuffer().then(b=>{const u=new Uint8Array(b);const t=new TextDecoder().decode(u);return u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF&&t.startsWith('구매일,')&&t.includes('녹차 500ml')})`,
+    "CSV에 품목 줄과 한글 BOM 포함",
+  );
   const autoTripId = await evaluate(`${saved}.receipts[0].id`);
   await click("receipt-" + autoTripId);
   await click("delete-receipt");

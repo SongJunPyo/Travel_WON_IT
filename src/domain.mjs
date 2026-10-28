@@ -402,3 +402,56 @@ export function withoutDefaults(state) {
     ),
   };
 }
+// 가계부 CSV: 영수증 품목 한 줄씩. 엑셀에서 한글이 깨지지 않도록 BOM을 붙이고, 쉼표·따옴표·줄바꿈은 따옴표로 감쌉니다.
+const csvCell = (value) => {
+  const text = value == null ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+export function ledgerCsv(state) {
+  const header = [
+    "구매일",
+    "매장명",
+    "매장명(한국어)",
+    "매장 주소",
+    "가계부 카테고리",
+    "상품명(원어)",
+    "상품명(한국어)",
+    "수량",
+    "개당 가격",
+    "품목 합계",
+    "통화",
+    "적용 환율",
+    "품목 원화 환산",
+    "영수증 총액",
+    "영수증 원화 환산",
+    "시연",
+  ];
+  const rows = [...state.receipts]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .flatMap((r) =>
+      r.items.map((i) => [
+        r.date,
+        r.store,
+        r.storeKo || "",
+        r.address || "",
+        r.category,
+        i.name,
+        i.nameKo || "",
+        i.quantity,
+        minorText(i.unitMinor, r.currency),
+        minorText(i.unitMinor * i.quantity, r.currency),
+        r.currency,
+        r.rate,
+        toWon(i.unitMinor * i.quantity, r.currency, r.rate),
+        minorText(r.totalMinor, r.currency),
+        toWon(r.totalMinor, r.currency, r.rate),
+        r.demo ? "Y" : "",
+      ]),
+    );
+  return (
+    "﻿" +
+    [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")
+  );
+}
+export const ledgerCsvName = (trip, today) =>
+  `여행WON해_가계부_${(trip.city || "여행").replace(/[\\/:*?"<>|\s]+/g, "_")}_${today}.csv`;

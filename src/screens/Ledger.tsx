@@ -6,10 +6,14 @@ import {
   Pressable,
   StyleSheet,
   ScrollView,
+  Platform,
+  Share,
 } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import {
   CATEGORIES,
+  ledgerCsv,
+  ledgerCsvName,
   summarize,
   spendingInsight,
   insightRequest,
@@ -72,6 +76,32 @@ export function Ledger({
       clearTimeout(timer);
     };
   }, [insightKey, deviceToken, ready]);
+  const [exportMessage, setExportMessage] = useState("");
+  // 가계부 CSV 내보내기: 웹은 파일로 내려받고, 앱은 공유 시트로 보냅니다(새 라이브러리 없이 RN Share 사용).
+  async function exportCsv() {
+    const today = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Seoul",
+    }).format(new Date());
+    const csv = ledgerCsv(state),
+      name = ledgerCsvName(state.trip, today);
+    try {
+      if (Platform.OS === "web") {
+        const url = URL.createObjectURL(
+          new Blob([csv], { type: "text/csv;charset=utf-8" }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = name;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else {
+        await Share.share({ title: name, message: csv });
+      }
+      setExportMessage(`${name} 파일로 내보냈어요.`);
+    } catch {
+      setExportMessage("내보내지 못했어요. 다시 시도해 주세요.");
+    }
+  }
   const filtered = state.receipts
     .filter((r) => filter === "전체" || r.category === filter)
     .sort(
@@ -350,8 +380,28 @@ export function Ledger({
           <Text style={s.sectionTitle}>나의 영수증</Text>
           <Text style={s.count}>{state.receipts.length}</Text>
         </View>
-        <Text style={s.smallCaption}>최근 구매일 순</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text style={s.smallCaption}>최근 구매일 순</Text>
+          {state.receipts.length ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="가계부 CSV로 내보내기"
+              onPress={() => {
+                void exportCsv();
+              }}
+              testID="export-csv"
+              style={s.csvButton}
+            >
+              <Text style={s.csvButtonText}>CSV 내보내기</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
+      {exportMessage ? (
+        <Text style={s.exportMessage} testID="export-message">
+          {exportMessage}
+        </Text>
+      ) : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -536,6 +586,21 @@ const s = StyleSheet.create({
     letterSpacing: -0.6,
   },
   smallCaption: { color: colors.muted, fontSize: 10 },
+  csvButton: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: "#fff",
+  },
+  csvButtonText: { color: colors.primary, fontSize: 10, fontWeight: "700" },
+  exportMessage: {
+    color: colors.muted,
+    fontSize: 10,
+    marginTop: -6,
+    marginBottom: 10,
+  },
   card: {
     backgroundColor: "#fff",
     borderRadius: 21,
