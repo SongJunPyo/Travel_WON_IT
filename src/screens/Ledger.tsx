@@ -16,6 +16,7 @@ import {
   money,
   toWon,
   storeLabel,
+  tripReady,
 } from "../domain.mjs";
 import { colors, Icon, Chip, Empty } from "../components/ui";
 import type { Receipt, TravelState } from "../types";
@@ -61,11 +62,17 @@ export function Ledger({
         <View style={s.tripIcon}>
           <Icon name="globe" size={18} color={colors.primary} />
         </View>
-        <Text style={s.tripCity}>{state.trip.city} 여행</Text>
-        <Text style={s.tripDate}>
-          {state.trip.start.slice(5).replace("-", ".")} –{" "}
-          {state.trip.end.slice(5).replace("-", ".")}
+        <Text style={s.tripCity}>
+          {tripReady(state.trip)
+            ? `${state.trip.city} 여행`
+            : "여행을 설정해 주세요"}
         </Text>
+        {tripReady(state.trip) && (
+          <Text style={s.tripDate}>
+            {state.trip.start.slice(5).replace("-", ".")} –{" "}
+            {state.trip.end.slice(5).replace("-", ".")}
+          </Text>
+        )}
         <Icon name="down" size={15} color={colors.muted} />
       </Pressable>
       <View style={s.hero}>
@@ -95,9 +102,13 @@ export function Ledger({
         />
         <View style={s.budget}>
           <View style={s.budgetLabels}>
-            <Text style={s.budgetText}>예산 {won(state.trip.budget)}</Text>
+            <Text style={s.budgetText}>
+              {state.trip.budget
+                ? `예산 ${won(state.trip.budget)}`
+                : "예산 미설정"}
+            </Text>
             <Text style={s.budgetPercent}>
-              {summary.percent.toFixed(1)}% 사용
+              {state.trip.budget ? `${summary.percent.toFixed(1)}% 사용` : ""}
             </Text>
           </View>
           <View style={s.progressTrack}>
@@ -107,15 +118,19 @@ export function Ledger({
                 {
                   width: `${Math.min(100, summary.percent)}%`,
                   backgroundColor:
-                    summary.remaining < 0 ? "#FFBF99" : "#A8DEFF",
+                    state.trip.budget && summary.remaining < 0
+                      ? "#FFBF99"
+                      : "#A8DEFF",
                 },
               ]}
             />
           </View>
           <Text style={s.remaining}>
-            {summary.remaining < 0
-              ? `예산을 ${won(-summary.remaining)} 초과했어요`
-              : `앞으로 ${won(summary.remaining)} 더 사용할 수 있어요`}
+            {!state.trip.budget
+              ? "여행 설정에서 예산을 정하면 남은 금액을 보여 드려요."
+              : summary.remaining < 0
+                ? `예산을 ${won(-summary.remaining)} 초과했어요`
+                : `앞으로 ${won(summary.remaining)} 더 사용할 수 있어요`}
           </Text>
         </View>
       </View>
@@ -324,7 +339,8 @@ export function Ledger({
       <View style={s.footer}>
         <Icon name="info" size={12} color={colors.muted} />
         <Text style={s.footerText}>
-          시연 기록이 포함돼요. 적용 환율은 직접 수정할 수 있어요.
+          {state.receipts.some((r) => r.demo) ? "시연 기록이 포함돼요. " : ""}
+          적용 환율은 직접 수정할 수 있어요.
         </Text>
       </View>
     </View>

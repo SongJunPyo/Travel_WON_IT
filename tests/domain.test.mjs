@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createDemo,
+  createInitialState,
+  EMPTY_TRIP,
+  tripReady,
+  withoutDefaults,
   parseMoney,
   rateUnits,
   toWon,
@@ -216,4 +220,67 @@ test("시연용 매장 좌표는 같은 매장이면 같고, 신주쿠역 300m~1
     const d = distanceMeters(DEMO_LOCATION, demoStoreLocation(name));
     assert.ok(d >= 290 && d <= 1510, `${name}: ${d}m`);
   }
+});
+test("처음 실행하면 여행과 영수증이 모두 빈 가계부로 시작한다", () => {
+  const state = createInitialState();
+  assert.deepEqual(state.receipts, []);
+  assert.deepEqual(state.trip, { ...EMPTY_TRIP });
+  assert.equal(tripReady(state.trip), false);
+  const summary = summarize(state.receipts, state.trip.budget);
+  assert.equal(summary.total, 0);
+  assert.equal(summary.percent, 0);
+});
+test("여행은 도시·국가·기간이 모두 있어야 설정된 것으로 본다", () => {
+  const trip = {
+    ...EMPTY_TRIP,
+    city: "도쿄",
+    country: "일본",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 600000,
+  };
+  assert.equal(tripReady(trip), true);
+  for (const override of [
+    { city: " " },
+    { country: "" },
+    { start: "2026-02-30" },
+    { end: "" },
+    { start: "2026-11-01" },
+  ])
+    assert.equal(tripReady({ ...trip, ...override }), false, JSON.stringify(override));
+});
+test("저장된 가계부에서 예전 기본 영수증과 바꾸지 않은 기본 여행(파리·도쿄)만 비운다", () => {
+  const parisTrip = {
+    city: "파리",
+    country: "프랑스",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 1000000,
+    currency: "EUR",
+    rate: 1600,
+  };
+  const saved = {
+    version: 1,
+    trip: parisTrip,
+    receipts: [
+      // 예전 파리 시연 데이터와 같은 id
+      { ...createDemo().receipts[0], id: "demo-hotel", store: "메종 블루 호텔", currency: "EUR" },
+      { ...createDemo().receipts[4], id: "demo-metro", store: "파리 메트로", currency: "EUR" },
+      receipt({ id: "real-1" }),
+      receipt({ id: "receipt-sample", demo: true }),
+      // id가 같아도 직접 등록한 영수증(demo 아님)은 지우지 않습니다.
+      receipt({ id: "demo-cafe", demo: false }),
+    ],
+  };
+  const cleaned = withoutDefaults(saved);
+  assert.deepEqual(
+    cleaned.receipts.map((r) => r.id),
+    ["real-1", "receipt-sample", "demo-cafe"],
+  );
+  assert.deepEqual(cleaned.trip, { ...EMPTY_TRIP });
+  assert.deepEqual(withoutDefaults({ ...saved, trip: createDemo().trip }).trip, { ...EMPTY_TRIP });
+  // 예산을 바꾼 여행은 사용자가 고친 것이므로 그대로 둡니다.
+  const edited = { ...parisTrip, budget: 600000 };
+  assert.equal(withoutDefaults({ ...saved, trip: edited }).trip, edited);
+  assert.equal(saved.receipts.length, 5);
 });

@@ -24,9 +24,11 @@ import { ReceiptEditor } from "./src/components/ReceiptEditor";
 import { TripSettings } from "./src/components/TripSettings";
 import { colors, Icon } from "./src/components/ui";
 import {
-  createDemo,
+  createInitialState,
   fingerprint,
+  tripReady,
   validateReceipt,
+  withoutDefaults,
 } from "./src/domain.mjs";
 import { loadLedger, syncLedger } from "./src/api";
 import type { Receipt, TravelState } from "./src/types";
@@ -34,7 +36,7 @@ import type { Receipt, TravelState } from "./src/types";
 const STORAGE_KEY = "travel-wonhae-mobile-v1",
   TOKEN_KEY = "travel-wonhae-device-token";
 function TravelApp() {
-  const [state, setState] = useState<TravelState>(() => createDemo()),
+  const [state, setState] = useState<TravelState>(() => createInitialState()),
     [loaded, setLoaded] = useState(false),
     [storageFailed, setStorageFailed] = useState(false);
   const [tab, setTab] = useState("ledger"),
@@ -81,7 +83,8 @@ function TravelApp() {
           )
             throw new Error("저장 형식 오류");
           parsed.receipts.forEach(validateReceipt);
-          if (active) setState(parsed);
+          // 예전 버전이 넣어 둔 기본 시연 영수증과 기본 여행(파리·도쿄)은 불러오지 않습니다.
+          if (active) setState(withoutDefaults(parsed));
         }
       } catch {
         if (active) {
@@ -111,6 +114,11 @@ function TravelApp() {
   }, [state, loaded, storageFailed]);
   async function refresh() {
     if (!token.current || storageFailed) return;
+    // 여행(도시·국가·기간)을 정하기 전에는 서버가 받지 않으므로 기기에만 저장합니다.
+    if (!tripReady(state.trip)) {
+      setSyncMessage("여행을 설정하면 가계부를 서버에도 저장해요.");
+      return;
+    }
     // 가계부 전체를 순서대로 서버 DB에 저장해 삭제·수정과 재시도를 함께 처리합니다.
     // 저장이 끝나면 PAGE 2가 서버에서 다시 조회해 방금 저장한 영수증도 보여 줍니다.
     const current = state;

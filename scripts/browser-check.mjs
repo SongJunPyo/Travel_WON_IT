@@ -226,6 +226,19 @@ try {
   await new Promise((r) => staticServer.listen(0, "127.0.0.1", r));
   const origin = `http://localhost:${staticServer.address().port}`;
   provider = http.createServer(async (req, res) => {
+    // 한국수출입은행 현재환율 API 대체 응답(1엔 = 9.24원). 실제 API는 부르지 않습니다.
+    if (req.url.startsWith("/exchangeJSON")) {
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify([
+          { result: 1, cur_unit: "JPY(100)", deal_bas_r: "924" },
+          { result: 1, cur_unit: "EUR", deal_bas_r: "1,600" },
+          { result: 1, cur_unit: "USD", deal_bas_r: "1,400" },
+          { result: 1, cur_unit: "THB", deal_bas_r: "40" },
+        ]),
+      );
+      return;
+    }
     let raw = "";
     for await (const chunk of req) raw += chunk;
     // Anthropic Messages API 대체 응답. 사진이 image 블록으로 왔는지만 확인합니다.
@@ -261,8 +274,9 @@ try {
       "--ANTHROPIC_API_KEY=test-only",
       `--app.allowed-origins=${origin}`,
       `--spring.ai.anthropic.base-url=http://127.0.0.1:${provider.address().port}`,
-      // 실제 한국수출입은행 API를 부르지 않도록 키를 비웁니다. 새 영수증의 적용 환율은 여행 설정 값으로 남습니다.
-      "--KOREAEXIM_API_KEY=",
+      // 한국수출입은행 API 대신 위 가짜 환율 응답을 씁니다(키는 시험용).
+      "--KOREAEXIM_API_KEY=test-only",
+      `--app.exchange-rate.url=http://127.0.0.1:${provider.address().port}/exchangeJSON`,
     ],
     {
       cwd: fileURLToPath(new URL("../", import.meta.url)),
@@ -272,7 +286,8 @@ try {
   javaProcess.stdout.on("data", (data) => javaLogs.push(data.toString()));
   javaProcess.stderr.on("data", (data) => javaLogs.push(data.toString()));
   let apiReady = false;
-  for (let i = 0; i < 200; i++) {
+  // 느린 PC에서는 서버가 뜨는 데 20초 넘게 걸려, 최대 약 60초까지 기다립니다.
+  for (let i = 0; i < 600; i++) {
     if (javaProcess.exitCode !== null) throw new Error(javaLogs.join(""));
     try {
       apiReady = (await (await fetch(`${api}/health`)).json()).ok;
@@ -383,8 +398,8 @@ try {
       Buffer.from(r.data, "base64"),
     );
   };
-  const check = async (expression, message, count = true) => {
-    for (let i = 0; i < 50; i++) {
+  const check = async (expression, message, count = true, tries = 50) => {
+    for (let i = 0; i < tries; i++) {
       if (await evaluate(expression)) {
         if (count) checks++;
         return;
@@ -414,6 +429,12 @@ try {
       `document.querySelector('[aria-label=${JSON.stringify(label)}]').click()`,
     );
   };
+  // 통화를 고르면 오늘 환율이 적용 환율 칸에 자동으로 채워질 때까지 기다립니다.
+  const rateFilled = (value) =>
+    check(
+      `document.querySelector('[data-testid="receipt-rate"]')?.value===${JSON.stringify(value)}`,
+      "오늘 환율 자동 채움: " + value,
+    );
   const set = async (id, value) => {
     await check(
       `!!document.querySelector('input[data-testid=${JSON.stringify(id)}]')`,
@@ -436,8 +457,9 @@ try {
     mobile: false,
   });
   await send("Page.navigate", { url: origin });
-  await check(`${saved}?.receipts.length===6`, "시연 영수증 초기 상태");
-  await check(bodyHas("702,388"), "원화 총지출 표시");
+  await check(`${saved}?.receipts.length===0`, "기본 영수증 없이 빈 가계부로 시작");
+  await check(bodyHas("아직 기록이 없어요"), "빈 영수증 목록 안내");
+  await check(bodyHas("여행을 설정해 주세요"), "여행 기본값 없이 시작");
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -457,23 +479,32 @@ try {
   await click("toggle-comparison");
   await check(bodyHas("시연 평균 ·"), "평균 비교 표 시연 표시");
   await click("trip-settings");
+  await set("trip-city", "도쿄");
+  await set("trip-country", "일본");
+  await set("trip-start", "2026-10-24");
+  await set("trip-end", "2026-10-30");
   await set("trip-budget", "600000");
   await click("save-settings");
-  await check(bodyHas("102,388원 초과"), "예산 초과 상태 표시");
+  await check(bodyHas("도쿄 여행"), "여행 설정 후 도시 표시");
+  await check(bodyHas("앞으로 600,000원 더 사용할 수 있어요"), "예산 변경 후 남은 예산 표시");
   await click("add-receipt");
   await click("sample-receipt");
+  await rateFilled("9.24");
   await click("save-receipt");
-  await check(`${saved}.receipts.length===7`, "시연 영수증 등록");
+  await check(`${saved}.receipts.length===1`, "시연 영수증 등록");
   await check(
     `${saved}.receipts.at(-1).demo===true&&${saved}.receipts.at(-1).shareConsent===false`,
     "시연 영수증 공유 금지",
   );
   await click("add-receipt");
   await click("sample-receipt");
+  await rateFilled("9.24");
   await click("save-receipt");
   await check(bodyHas("같은 매장·구매일·금액"), "중복 영수증 저장 차단");
   await clickLabel("창 닫기");
   await click("add-receipt");
+  await click("currency-JPY");
+  await rateFilled("9.24");
   await set("receipt-store", "직접 입력 테스트");
   await set("item-name-0", "코카콜라 500ml");
   await set("item-price-0", "210");
@@ -481,7 +512,7 @@ try {
   await set("receipt-total", "420");
   await click("save-receipt");
   await check(
-    `${saved}.receipts.length===8&&${saved}.receipts.at(-1).totalMinor===420`,
+    `${saved}.receipts.length===2&&${saved}.receipts.at(-1).totalMinor===420`,
     "직접 입력 단가와 수량 저장",
   );
   await check(
@@ -497,16 +528,16 @@ try {
   await set("receipt-store", "수정된 매장");
   await click("save-receipt");
   await check(
-    `${saved}.receipts.length===8&&${saved}.receipts.at(-1).store==='수정된 매장'`,
+    `${saved}.receipts.length===2&&${saved}.receipts.at(-1).store==='수정된 매장'`,
     "수정 시 중복 생성 없이 반영",
   );
   await click("receipt-" + manualId);
   await click("delete-receipt");
   await click("delete-receipt");
-  await check(`${saved}.receipts.length===7`, "영수증 삭제");
+  await check(`${saved}.receipts.length===1`, "영수증 삭제");
   await send("Page.reload");
   await check(
-    `${saved}.receipts.length===7&&${saved}.trip.budget===600000`,
+    `${saved}.receipts.length===1&&${saved}.trip.budget===600000`,
     "재시작 후 데이터 복원",
   );
   await click("tab-compare");
@@ -662,6 +693,8 @@ try {
   );
   await click("tab-ledger");
   await click("add-receipt");
+  await click("currency-JPY");
+  await rateFilled("9.24");
   await set("receipt-store", "공유 테스트 매장");
   await set("item-name-0", "코카콜라 500ml");
   await set("item-price-0", "150");
@@ -727,9 +760,12 @@ try {
     `!!document.querySelector('[data-testid="ocr-loading"]')&&document.body.innerText.includes('AI가 영수증을 읽고 있어요')`,
     "분석을 기다리는 동안 로딩 화면 표시",
   );
+  // 서버를 띄운 뒤 첫 AI 요청은 준비 시간 때문에 5초를 넘길 수 있어 더 기다립니다.
   await check(
     bodyHas("AI 인식 결과예요"),
     "사진 업로드 후 OCR 결과 검토 (서버 대체 응답)",
+    true,
+    300,
   );
   await check(
     `!document.querySelector('[data-testid="ocr-loading"]')`,
@@ -747,6 +783,7 @@ try {
     `document.querySelector('[data-testid="receipt-store"]').value==='テスト写真店'&&document.querySelector('[data-testid="receipt-store-ko"]').value==='테스트 사진 매장'`,
     "매장명 원문·한국어 번역 두 칸 채움",
   );
+  await rateFilled("9.24");
   await click("save-receipt");
   await check(
     `${saved}.receipts.at(-1).store==='テスト写真店'&&${saved}.receipts.at(-1).storeKo==='테스트 사진 매장'&&!${saved}.receipts.at(-1).demo&&${saved}.receipts.at(-1).items[0].nameKo==='도리토스 나초치즈 60g'&&${saved}.receipts.at(-1).address==='도쿄 신주쿠구 테스트 주소 1-1'`,

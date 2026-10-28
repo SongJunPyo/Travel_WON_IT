@@ -276,3 +276,71 @@ export function createDemo() {
     ],
   };
 }
+// 아직 정하지 않은 여행입니다. 통화는 환산이 필요 없는 원화로 둡니다.
+export const EMPTY_TRIP = Object.freeze({
+  city: "",
+  country: "",
+  start: "",
+  end: "",
+  budget: 0,
+  currency: "KRW",
+  rate: 1,
+});
+// 처음 실행할 때의 가계부입니다. 여행과 영수증을 모두 비워 두고, 사용자가 여행 설정에서 정합니다.
+export function createInitialState() {
+  return { version: 1, trip: { ...EMPTY_TRIP }, receipts: [] };
+}
+// 여행 도시·국가·기간이 모두 정해졌는지 봅니다. 서버는 이 값이 없는 여행을 저장하지 않습니다.
+export function tripReady(trip) {
+  return (
+    !!trip?.city?.trim() &&
+    !!trip?.country?.trim() &&
+    validDate(trip.start) &&
+    validDate(trip.end) &&
+    trip.start <= trip.end
+  );
+}
+// 예전 버전이 처음 실행할 때 넣던 기본 시연 영수증(파리·도쿄)의 id입니다.
+const DEFAULT_DEMO_IDS = new Set([
+  "demo-hotel",
+  "demo-shop",
+  "demo-cafe",
+  "demo-market",
+  "demo-metro",
+  "demo-museum",
+]);
+// 예전 버전이 처음 실행할 때 넣던 기본 여행(파리·도쿄)입니다.
+const DEFAULT_TRIPS = [
+  {
+    city: "파리",
+    country: "프랑스",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 1000000,
+    currency: "EUR",
+    rate: 1600,
+  },
+  {
+    city: "도쿄",
+    country: "일본",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 1000000,
+    currency: "JPY",
+    rate: 9.24,
+  },
+];
+// 저장된 가계부에서 예전 기본값만 뺍니다. 기본 시연 영수증은 지우고, 사용자가 바꾸지 않은 기본 여행은 비웁니다.
+// 직접 등록하거나 체험으로 만든 영수증, 사용자가 고친 여행은 그대로 둡니다.
+export function withoutDefaults(state) {
+  const defaultTrip = DEFAULT_TRIPS.some((d) =>
+    Object.keys(d).every((key) => state.trip?.[key] === d[key]),
+  );
+  return {
+    ...state,
+    trip: defaultTrip ? { ...EMPTY_TRIP } : state.trip,
+    receipts: state.receipts.filter(
+      (r) => !(r.demo && DEFAULT_DEMO_IDS.has(r.id)),
+    ),
+  };
+}
