@@ -756,6 +756,13 @@ try {
     `${browseCards}.length===5&&!!document.querySelector('[data-testid="show-more"]')`,
     "결과는 5개만 보이고 더 보기 버튼 표시",
   );
+  // (가짜) AI가 후보 7개를 모두 돌려줘도 'AI 추천' 배지는 맨 위 3개에만 붙습니다.
+  // 앞에서 고른 정렬(최신순)이 남아 있으므로 추천순으로 바꿉니다.
+  await click("browse-sort-추천순");
+  await check(
+    `(()=>{const cards=[...${browseCards}];return cards.slice(0,3).every((e)=>e.textContent.includes('AI 추천'))&&!cards.slice(3).some((e)=>e.textContent.includes('AI 추천'))})()`,
+    "AI 추천 배지는 맨 위 3개에만 표시",
+  );
   await click("show-more");
   await check(
     `${browseCards}.length===7&&!document.querySelector('[data-testid="show-more"]')`,
