@@ -5,6 +5,7 @@ import {
   createInitialState,
   EMPTY_TRIP,
   tripReady,
+  tripWithReceipt,
   withoutDefaults,
   parseMoney,
   rateUnits,
@@ -322,4 +323,173 @@ test("저장된 가계부에서 예전 기본 영수증과 바꾸지 않은 기�
   const edited = { ...parisTrip, budget: 600000 };
   assert.equal(withoutDefaults({ ...saved, trip: edited }).trip, edited);
   assert.equal(saved.receipts.length, 5);
+});
+test("여행을 정하지 않았으면 첫 실제 영수증의 통화·구매일·환율로 여행을 채운다", () => {
+  const first = tripWithReceipt(
+    { ...EMPTY_TRIP },
+    receipt({ currency: "JPY", date: "2026-10-27", rate: 9.24 }),
+  );
+  assert.deepEqual(first, {
+    ...EMPTY_TRIP,
+    city: "일본",
+    country: "일본",
+    start: "2026-10-27",
+    end: "2026-10-27",
+    currency: "JPY",
+    rate: 9.24,
+  });
+  assert.equal(tripReady(first), true);
+  // 유로는 쓰는 나라가 여럿이라 유럽으로 둡니다.
+  assert.equal(
+    tripWithReceipt({ ...EMPTY_TRIP }, receipt({ currency: "EUR", rate: 1600 }))
+      .city,
+    "유럽",
+  );
+  // 사용자가 먼저 적은 도시는 그대로 둡니다.
+  assert.equal(
+    tripWithReceipt(
+      { ...EMPTY_TRIP, city: "오사카" },
+      receipt({ currency: "JPY" }),
+    ).city,
+    "오사카",
+  );
+  // 시연 영수증은 여행을 바꾸지 않습니다.
+  const empty = { ...EMPTY_TRIP };
+  assert.equal(tripWithReceipt(empty, receipt({ demo: true })), empty);
+});
+test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히고 줄이지 않는다", () => {
+  const trip = {
+    city: "도쿄",
+    country: "일본",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 600000,
+    currency: "JPY",
+    rate: 9.24,
+  };
+  assert.equal(tripWithReceipt(trip, receipt({ date: "2026-10-27" })), trip);
+  assert.deepEqual(
+    tripWithReceipt(trip, receipt({ date: "2026-11-01", currency: "USD" })),
+    {
+      ...trip,
+      end: "2026-11-01",
+    },
+  );
+  assert.deepEqual(tripWithReceipt(trip, receipt({ date: "2026-10-22" })), {
+    ...trip,
+    start: "2026-10-22",
+  });
+  // 여러 영수증을 차례로 넣으면 가장 이른 날부터 가장 늦은 날까지가 됩니다.
+  const filled = [
+    receipt({ date: "2026-10-26", currency: "THB", rate: 40 }),
+    receipt({ date: "2026-10-24" }),
+    receipt({ date: "2026-10-29" }),
+  ].reduce(tripWithReceipt, { ...EMPTY_TRIP });
+  assert.equal(filled.city, "태국");
+  assert.equal(filled.start, "2026-10-24");
+  assert.equal(filled.end, "2026-10-29");
+});
+test("다른 여행자 비교는 일차별 누적 지출(0일차 = 출발 전)로 막대 값을 만든다", async () => {
+  const { myCumulative, cumulativeBars, cumulativeDayLabel, dayIndex } =
+    await import("../src/domain.mjs");
+  const receipt = (id, totalMinor, date) => ({
+    id,
+    store: id,
+    date,
+    category: "음식",
+    currency: "KRW",
+    rate: 1,
+    totalMinor,
+    items: [{ name: id, quantity: 1, unitMinor: totalMinor }],
+    demo: false,
+  });
+  const state = {
+    trip: {
+      city: "도쿄",
+      country: "일본",
+      start: "2026-10-24",
+      end: "2026-10-30",
+      budget: 1000000,
+      currency: "KRW",
+      rate: 1,
+    },
+    receipts: [
+      receipt("호텔 예약", 140000, "2026-10-01"),
+      receipt("라멘", 20000, "2026-10-24"),
+      receipt("쇼핑", 31000, "2026-10-25"),
+    ],
+  };
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-01"), 0);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-24"), 1);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-11-05"), 7);
+  // 오늘 10/25 = 2일차: [0일차 140,000, 1일차 160,000, 2일차 191,000]
+  assert.deepEqual(myCumulative(state, "2026-10-25"), [140000, 160000, 191000]);
+  // 여행 전이면 0일차만
+  assert.deepEqual(
+    myCumulative({ ...state, receipts: [state.receipts[0]] }, "2026-10-10"),
+    [140000],
+  );
+  assert.equal(cumulativeDayLabel(state, 0, "2026-10-25"), "0일차 · 출발 전");
+  assert.equal(
+    cumulativeDayLabel(state, 2, "2026-10-25"),
+    "2일차 · 10.25 · 오늘",
+  );
+  const mine = [140000, 160000, 191000];
+  assert.deepEqual(cumulativeBars(mine, null, 2), {
+    me: 191000,
+    average: null,
+    diff: 0,
+    percent: 0,
+    tone: "none",
+  });
+  const peers = [120000, 150000, 165000];
+  assert.equal(cumulativeBars(mine, peers, 2).diff, 26000);
+  assert.equal(cumulativeBars(mine, peers, 2).percent, 16);
+  assert.equal(cumulativeBars(mine, peers, 2).tone, "more");
+  assert.equal(cumulativeBars(mine, [120000, 158000], 1).tone, "same");
+  // 그 일차까지 여행한 비교 여행자가 부족하면 평균 없음
+  assert.equal(cumulativeBars(mine, [120000, 150000], 2).average, null);
+});
+test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환산을 넣는다", async () => {
+  const { ledgerCsv, ledgerCsvName } = await import("../src/domain.mjs");
+  const csv = ledgerCsv({
+    trip: { city: "도쿄" },
+    receipts: [
+      {
+        id: "a",
+        date: "2026-10-27",
+        store: "ローソン",
+        storeKo: "로손",
+        address: "新宿 3-1",
+        category: "음식",
+        currency: "JPY",
+        rate: 9.3277,
+        totalMinor: 380,
+        demo: false,
+        items: [
+          {
+            name: 'コカ・コーラ, "500ml"',
+            nameKo: "코카콜라 500ml",
+            quantity: 2,
+            unitMinor: 190,
+          },
+        ],
+      },
+    ],
+  });
+  assert.ok(csv.startsWith("﻿구매일,"));
+  const lines = csv.slice(1).split("\r\n");
+  assert.equal(lines.length, 2);
+  assert.equal(
+    lines[1],
+    '2026-10-27,ローソン,로손,新宿 3-1,음식,"コカ・コーラ, ""500ml""",코카콜라 500ml,2,190,380,JPY,9.3277,3545,380,3545,',
+  );
+  assert.equal(
+    ledgerCsvName({ city: "뉴 욕" }, "2026-10-28"),
+    "여행WON해_가계부_뉴_욕_2026-10-28.csv",
+  );
+});
+test("카테고리 둘러보기 거리순 정렬을 쓸 수 있다", async () => {
+  const { BROWSE_SORTS } = await import("../src/domain.mjs");
+  assert.equal(BROWSE_SORTS.find((s) => s.name === "거리순").ready, true);
 });

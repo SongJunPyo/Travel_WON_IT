@@ -244,7 +244,12 @@ export function Compare({
               <Text style={s.purchaseDate}>
                 최근 구매일 {p.date.replace(/-/g, ".")}
               </Text>
-              <Text style={s.purchaseCount}>구매 {p.count}회</Text>
+              <Text style={s.purchaseCount} testID={`card-distance-${p.id}`}>
+                {p.distance < 1000
+                  ? `${p.distance}m`
+                  : `${(p.distance / 1000).toFixed(1)}km`}{" "}
+                · 구매 {p.count}회
+              </Text>
             </View>
           </Pressable>
         ))

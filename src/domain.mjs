@@ -210,13 +210,13 @@ export const BROWSE_CATEGORIES = [
   { name: "액티비티", icon: "mountain", color: "#B7791F" },
   { name: "렌트", icon: "car", color: "#47617A" },
 ];
-// 거리순은 현재 위치 연동 후 제공합니다. 추천순은 서버가 가격·인기·최근성·거리와 내 가계부 요약으로 정합니다.
+// 거리순은 조회 위치(시연은 신주쿠역)에서 가까운 순입니다. 추천순은 서버가 가격·인기·최근성·거리와 내 가계부 요약으로 정합니다.
 export const BROWSE_SORTS = [
   { name: "추천순", ready: true },
   { name: "가격순", ready: true },
   { name: "구매수", ready: true },
   { name: "최신순", ready: true },
-  { name: "거리순", ready: false },
+  { name: "거리순", ready: true },
 ];
 // 시연 위치: 도쿄 신주쿠역. PAGE 2는 이 위치 반경 3km의 공유 영수증을 서버에서 조회합니다.
 export const DEMO_LOCATION = { latitude: 35.6896, longitude: 139.7006 };
@@ -310,7 +310,7 @@ export const EMPTY_TRIP = Object.freeze({
   currency: "KRW",
   rate: 1,
 });
-// 처음 실행할 때의 가계부입니다. 여행과 영수증을 모두 비워 두고, 사용자가 여행 설정에서 정합니다.
+// 처음 실행할 때의 가계부입니다. 여행과 영수증을 모두 비워 두고, 첫 영수증이나 여행 설정으로 정합니다.
 export function createInitialState() {
   return { version: 1, trip: { ...EMPTY_TRIP }, receipts: [] };
 }
@@ -323,6 +323,40 @@ export function tripReady(trip) {
     validDate(trip.end) &&
     trip.start <= trip.end
   );
+}
+// 영수증 통화로 여행 지역을 짐작합니다. 유로는 쓰는 나라가 여럿이라 유럽으로 둡니다.
+export const CURRENCY_REGIONS = {
+  JPY: "일본",
+  THB: "태국",
+  USD: "미국",
+  EUR: "유럽",
+  KRW: "한국",
+};
+// 사용자가 여행을 직접 입력하지 않아도 되도록 영수증으로 여행을 채웁니다.
+// 여행을 정하지 않았으면 비어 있는 도시·국가와 기간·통화·환율을 첫 영수증으로 채우고,
+// 정했으면 영수증 구매일이 들어가도록 기간만 넓힙니다(줄이지 않음). 시연 영수증은 쓰지 않습니다.
+export function tripWithReceipt(trip, receipt) {
+  if (receipt.demo || !validDate(receipt.date)) return trip;
+  const start =
+    validDate(trip.start) && trip.start <= receipt.date
+      ? trip.start
+      : receipt.date;
+  const end =
+    validDate(trip.end) && trip.end >= receipt.date ? trip.end : receipt.date;
+  if (tripReady(trip))
+    return start === trip.start && end === trip.end
+      ? trip
+      : { ...trip, start, end };
+  const region = CURRENCY_REGIONS[receipt.currency] || "";
+  return {
+    ...trip,
+    city: trip.city.trim() || region,
+    country: trip.country.trim() || region,
+    start,
+    end,
+    currency: receipt.currency,
+    rate: receipt.rate,
+  };
 }
 // 예전 버전이 처음 실행할 때 넣던 기본 시연 영수증(파리·도쿄)의 id입니다.
 const DEFAULT_DEMO_IDS = new Set([
@@ -368,3 +402,119 @@ export function withoutDefaults(state) {
     ),
   };
 }
+// 가계부 '다른 여행자와 비교': 일차별 누적 지출 (0일차 = 출발 전, 1일차 = 여행 첫날).
+const dayNumber = (date) => Math.round(Date.parse(date) / 86400000);
+// 구매일 → 일차. 여행 시작 전은 0일차, 종료일 뒤는 마지막 일차로 넣습니다(서버와 같은 규칙).
+export function dayIndex(start, days, date) {
+  return Math.max(0, Math.min(days, dayNumber(date) - dayNumber(start) + 1));
+}
+// 내 일차별 누적 지출(원). 0일차부터 오늘(여행이 끝났으면 마지막 날, 시작 전이면 0일차)까지 돌려줍니다.
+// 여행을 아직 정하지 않았으면 가장 이른 영수증 날짜를 1일차로 봅니다.
+export function myCumulative(state, today) {
+  const receipts = state.receipts.filter((r) => validDate(r.date));
+  const ready = tripReady(state.trip);
+  if (!ready && !receipts.length) return [0];
+  const start = ready
+    ? state.trip.start
+    : receipts.map((r) => r.date).sort()[0];
+  const end = ready
+    ? state.trip.end
+    : receipts
+        .map((r) => r.date)
+        .sort()
+        .at(-1);
+  const days = dayNumber(end) - dayNumber(start) + 1;
+  const todayIndex = dayIndex(start, days, today);
+  const last = Math.max(
+    todayIndex,
+    ...receipts.map((r) => dayIndex(start, days, r.date)),
+  );
+  const byDay = Array(last + 1).fill(0);
+  for (const r of receipts)
+    byDay[dayIndex(start, days, r.date)] += toWon(
+      r.totalMinor,
+      r.currency,
+      r.rate,
+    );
+  let sum = 0;
+  return byDay.map((v) => (sum += v));
+}
+// 드롭다운 항목: "0일차 · 출발 전", "1일차 · 10.24", 오늘이면 "· 오늘"
+export function cumulativeDayLabel(state, day, today) {
+  if (day === 0) return "0일차 · 출발 전";
+  const start = tripReady(state.trip)
+    ? state.trip.start
+    : state.receipts.map((r) => r.date).sort()[0];
+  if (!start) return `${day}일차`;
+  const date = new Date((dayNumber(start) + day - 1) * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  return `${day}일차 · ${date.slice(5).replace("-", ".")}${date === today ? " · 오늘" : ""}`;
+}
+// 고른 일차의 막대 두 개(나·다른 여행자)와 차이 문구용 값.
+// 다른 여행자 값이 없으면(비교 여행자 5명 미만, 또는 그 일차까지 여행한 사람이 5명 미만) average는 null입니다.
+// 차이가 평균의 3% 안쪽이면 '비슷함'입니다.
+export function cumulativeBars(mine, peers, day) {
+  const me = mine[day] ?? mine.at(-1) ?? 0;
+  const average = peers && day < peers.length ? peers[day] : null;
+  if (average == null)
+    return { me, average, diff: 0, percent: 0, tone: "none" };
+  const diff = me - average;
+  const percent = average ? Math.round((Math.abs(diff) / average) * 100) : 0;
+  const tone =
+    Math.abs(diff) <= average * 0.03 ? "same" : diff > 0 ? "more" : "less";
+  return { me, average, diff, percent, tone };
+}
+// 가계부 CSV: 영수증 품목 한 줄씩. 엑셀에서 한글이 깨지지 않도록 BOM을 붙이고, 쉼표·따옴표·줄바꿈은 따옴표로 감쌉니다.
+const csvCell = (value) => {
+  const text = value == null ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+export function ledgerCsv(state) {
+  const header = [
+    "구매일",
+    "매장명",
+    "매장명(한국어)",
+    "매장 주소",
+    "가계부 카테고리",
+    "상품명(원어)",
+    "상품명(한국어)",
+    "수량",
+    "개당 가격",
+    "품목 합계",
+    "통화",
+    "적용 환율",
+    "품목 원화 환산",
+    "영수증 총액",
+    "영수증 원화 환산",
+    "시연",
+  ];
+  const rows = [...state.receipts]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .flatMap((r) =>
+      r.items.map((i) => [
+        r.date,
+        r.store,
+        r.storeKo || "",
+        r.address || "",
+        r.category,
+        i.name,
+        i.nameKo || "",
+        i.quantity,
+        minorText(i.unitMinor, r.currency),
+        minorText(i.unitMinor * i.quantity, r.currency),
+        r.currency,
+        r.rate,
+        toWon(i.unitMinor * i.quantity, r.currency, r.rate),
+        minorText(r.totalMinor, r.currency),
+        toWon(r.totalMinor, r.currency, r.rate),
+        r.demo ? "Y" : "",
+      ]),
+    );
+  return (
+    "﻿" +
+    [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")
+  );
+}
+export const ledgerCsvName = (trip, today) =>
+  `여행WON해_가계부_${(trip.city || "여행").replace(/[\\/:*?"<>|\s]+/g, "_")}_${today}.csv`;
