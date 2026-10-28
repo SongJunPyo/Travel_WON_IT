@@ -521,7 +521,7 @@ try {
   await send("Page.navigate", { url: origin });
   await check(`${saved}?.receipts.length===0`, "기본 영수증 없이 빈 가계부로 시작");
   await check(bodyHas("아직 기록이 없어요"), "빈 영수증 목록 안내");
-  await check(bodyHas("여행을 설정해 주세요"), "여행 기본값 없이 시작");
+  await check(bodyHas("첫 영수증을 올리면 여행이 정해져요"), "여행 기본값 없이 시작");
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -540,6 +540,28 @@ try {
   await screenshot("mobile-ledger");
   await click("toggle-comparison");
   await check(bodyHas("시연 평균 ·"), "평균 비교 표 시연 표시");
+  // 여행을 직접 입력하지 않아도 첫 실제 영수증의 통화·구매일로 여행이 채워집니다.
+  await click("add-receipt");
+  await click("currency-JPY");
+  await rateFilled("9.24");
+  await set("receipt-store", "여행 자동 설정 테스트");
+  await set("item-name-0", "녹차 500ml");
+  await set("item-price-0", "150");
+  await set("receipt-total", "150");
+  await click("save-receipt");
+  await check(
+    `${saved}.receipts.length===1&&${saved}.trip.country==='일본'&&${saved}.trip.currency==='JPY'&&${saved}.trip.start===${saved}.receipts[0].date&&${saved}.trip.end===${saved}.receipts[0].date`,
+    "첫 실제 영수증으로 여행 지역·기간·통화 자동 설정",
+  );
+  await check(
+    bodyHas("일본 여행") + "&&" + bodyHas("영수증으로 여행 정보를 채웠어요"),
+    "자동으로 정한 여행 표시와 안내",
+  );
+  const autoTripId = await evaluate(`${saved}.receipts[0].id`);
+  await click("receipt-" + autoTripId);
+  await click("delete-receipt");
+  await click("delete-receipt");
+  await check(`${saved}.receipts.length===0`, "자동 설정 확인용 영수증 삭제");
   await click("trip-settings");
   await set("trip-city", "도쿄");
   await set("trip-country", "일본");

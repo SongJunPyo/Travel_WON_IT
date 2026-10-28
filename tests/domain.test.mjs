@@ -5,6 +5,7 @@ import {
   createInitialState,
   EMPTY_TRIP,
   tripReady,
+  tripWithReceipt,
   withoutDefaults,
   parseMoney,
   rateUnits,
@@ -322,4 +323,69 @@ test("저장된 가계부에서 예전 기본 영수증과 바꾸지 않은 기�
   const edited = { ...parisTrip, budget: 600000 };
   assert.equal(withoutDefaults({ ...saved, trip: edited }).trip, edited);
   assert.equal(saved.receipts.length, 5);
+});
+test("여행을 정하지 않았으면 첫 실제 영수증의 통화·구매일·환율로 여행을 채운다", () => {
+  const first = tripWithReceipt(
+    { ...EMPTY_TRIP },
+    receipt({ currency: "JPY", date: "2026-10-27", rate: 9.24 }),
+  );
+  assert.deepEqual(first, {
+    ...EMPTY_TRIP,
+    city: "일본",
+    country: "일본",
+    start: "2026-10-27",
+    end: "2026-10-27",
+    currency: "JPY",
+    rate: 9.24,
+  });
+  assert.equal(tripReady(first), true);
+  // 유로는 쓰는 나라가 여럿이라 유럽으로 둡니다.
+  assert.equal(
+    tripWithReceipt({ ...EMPTY_TRIP }, receipt({ currency: "EUR", rate: 1600 }))
+      .city,
+    "유럽",
+  );
+  // 사용자가 먼저 적은 도시는 그대로 둡니다.
+  assert.equal(
+    tripWithReceipt(
+      { ...EMPTY_TRIP, city: "오사카" },
+      receipt({ currency: "JPY" }),
+    ).city,
+    "오사카",
+  );
+  // 시연 영수증은 여행을 바꾸지 않습니다.
+  const empty = { ...EMPTY_TRIP };
+  assert.equal(tripWithReceipt(empty, receipt({ demo: true })), empty);
+});
+test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히고 줄이지 않는다", () => {
+  const trip = {
+    city: "도쿄",
+    country: "일본",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 600000,
+    currency: "JPY",
+    rate: 9.24,
+  };
+  assert.equal(tripWithReceipt(trip, receipt({ date: "2026-10-27" })), trip);
+  assert.deepEqual(
+    tripWithReceipt(trip, receipt({ date: "2026-11-01", currency: "USD" })),
+    {
+      ...trip,
+      end: "2026-11-01",
+    },
+  );
+  assert.deepEqual(tripWithReceipt(trip, receipt({ date: "2026-10-22" })), {
+    ...trip,
+    start: "2026-10-22",
+  });
+  // 여러 영수증을 차례로 넣으면 가장 이른 날부터 가장 늦은 날까지가 됩니다.
+  const filled = [
+    receipt({ date: "2026-10-26", currency: "THB", rate: 40 }),
+    receipt({ date: "2026-10-24" }),
+    receipt({ date: "2026-10-29" }),
+  ].reduce(tripWithReceipt, { ...EMPTY_TRIP });
+  assert.equal(filled.city, "태국");
+  assert.equal(filled.start, "2026-10-24");
+  assert.equal(filled.end, "2026-10-29");
 });

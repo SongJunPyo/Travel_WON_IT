@@ -310,7 +310,7 @@ export const EMPTY_TRIP = Object.freeze({
   currency: "KRW",
   rate: 1,
 });
-// 처음 실행할 때의 가계부입니다. 여행과 영수증을 모두 비워 두고, 사용자가 여행 설정에서 정합니다.
+// 처음 실행할 때의 가계부입니다. 여행과 영수증을 모두 비워 두고, 첫 영수증이나 여행 설정으로 정합니다.
 export function createInitialState() {
   return { version: 1, trip: { ...EMPTY_TRIP }, receipts: [] };
 }
@@ -323,6 +323,40 @@ export function tripReady(trip) {
     validDate(trip.end) &&
     trip.start <= trip.end
   );
+}
+// 영수증 통화로 여행 지역을 짐작합니다. 유로는 쓰는 나라가 여럿이라 유럽으로 둡니다.
+export const CURRENCY_REGIONS = {
+  JPY: "일본",
+  THB: "태국",
+  USD: "미국",
+  EUR: "유럽",
+  KRW: "한국",
+};
+// 사용자가 여행을 직접 입력하지 않아도 되도록 영수증으로 여행을 채웁니다.
+// 여행을 정하지 않았으면 비어 있는 도시·국가와 기간·통화·환율을 첫 영수증으로 채우고,
+// 정했으면 영수증 구매일이 들어가도록 기간만 넓힙니다(줄이지 않음). 시연 영수증은 쓰지 않습니다.
+export function tripWithReceipt(trip, receipt) {
+  if (receipt.demo || !validDate(receipt.date)) return trip;
+  const start =
+    validDate(trip.start) && trip.start <= receipt.date
+      ? trip.start
+      : receipt.date;
+  const end =
+    validDate(trip.end) && trip.end >= receipt.date ? trip.end : receipt.date;
+  if (tripReady(trip))
+    return start === trip.start && end === trip.end
+      ? trip
+      : { ...trip, start, end };
+  const region = CURRENCY_REGIONS[receipt.currency] || "";
+  return {
+    ...trip,
+    city: trip.city.trim() || region,
+    country: trip.country.trim() || region,
+    start,
+    end,
+    currency: receipt.currency,
+    rate: receipt.rate,
+  };
 }
 // 예전 버전이 처음 실행할 때 넣던 기본 시연 영수증(파리·도쿄)의 id입니다.
 const DEFAULT_DEMO_IDS = new Set([

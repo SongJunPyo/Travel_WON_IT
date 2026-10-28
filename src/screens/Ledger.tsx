@@ -102,7 +102,7 @@ export function Ledger({
         <Text style={s.tripCity}>
           {tripReady(state.trip)
             ? `${state.trip.city} 여행`
-            : "여행을 설정해 주세요"}
+            : "첫 영수증을 올리면 여행이 정해져요"}
         </Text>
         {tripReady(state.trip) && (
           <Text style={s.tripDate}>
