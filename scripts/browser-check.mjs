@@ -554,6 +554,12 @@ try {
   await rateFilled("9.24");
   await click("save-receipt");
   await check(`${saved}.receipts.length===1`, "시연 영수증 등록");
+  // 소비 인사이트: 여행을 정하고 첫 영수증을 기록하면, 서버가 계산한 근거 숫자(칩)와
+  // (가짜) AI가 그 숫자로 쓴 문장과 'AI 분석' 배지를 보여 줍니다.
+  await check(
+    `(()=>{const card=document.querySelector('[data-testid="insight-card"]');return !!card&&card.textContent.includes('AI 분석')&&card.textContent.includes('테스트 AI 인사이트')&&card.textContent.includes('% 사용')&&!!card.querySelector('[data-testid="insight-facts"]')})()`,
+    "소비 인사이트: 서버 계산 숫자와 AI 분석 문장 표시",
+  );
   await check(
     `${saved}.receipts.at(-1).demo===true&&${saved}.receipts.at(-1).shareConsent===false`,
     "시연 영수증 공유 금지",

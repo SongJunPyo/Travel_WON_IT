@@ -42,11 +42,17 @@ export function Ledger({
   const summary = summarize(state.receipts, state.trip.budget);
   // 소비 인사이트: 가계부 요약이 바뀌면 잠시 기다렸다가 서버에 분석을 요청합니다.
   // 서버에 연결하지 못하면 기기 안의 규칙 기반 문장(spendingInsight)을 보여 줍니다.
+  // 여행(도시·국가·기간)을 정하기 전에는 서버가 분석하지 않으므로 요청하지 않습니다.
   const [insight, setInsight] = useState<Insight | null>(null),
     [insightLoading, setInsightLoading] = useState(false);
+  const ready = tripReady(state.trip);
   const insightKey = JSON.stringify(insightRequest(state));
   useEffect(() => {
-    if (!deviceToken) return;
+    if (!deviceToken || !ready) {
+      setInsight(null);
+      setInsightLoading(false);
+      return;
+    }
     let active = true;
     setInsightLoading(true);
     const timer = setTimeout(() => {
@@ -65,7 +71,7 @@ export function Ledger({
       active = false;
       clearTimeout(timer);
     };
-  }, [insightKey, deviceToken]);
+  }, [insightKey, deviceToken, ready]);
   const filtered = state.receipts
     .filter((r) => filter === "전체" || r.category === filter)
     .sort(
