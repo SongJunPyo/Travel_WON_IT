@@ -416,7 +416,7 @@ export function Ledger({
               {bars.tone === "none"
                 ? peerCumulative
                   ? `${day}일차까지 여행한 다른 여행자가 5명 미만이라 비교할 수 없어요.`
-                  : "같은 도시를 다녀온 여행자 기록이 5명 이상 모이면 비교해 드려요."
+                  : "최근 1달 안에 같은 나라를 다녀온 여행자 기록이 5명 이상 모이면 비교해 드려요."
                 : bars.tone === "same"
                   ? `평균과 ${day}일차까지 비슷하게 썼어요.`
                   : `평균보다 ${day}일차에 ${won(Math.abs(bars.diff))}${bars.average ? `(${bars.percent}%)` : ""} ${bars.tone === "more" ? "더" : "덜"} 썼어요.`}
