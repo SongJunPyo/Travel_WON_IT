@@ -2,10 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createDemo,
-  createInitialState,
-  EMPTY_TRIP,
-  tripReady,
-  withoutDefaults,
   parseMoney,
   rateUnits,
   toWon,
@@ -223,66 +219,40 @@ test("시연용 매장 좌표는 같은 매장이면 같고, 신주쿠역 300m~1
     assert.ok(d >= 290 && d <= 1510, `${name}: ${d}m`);
   }
 });
-test("처음 실행하면 여행과 영수증이 모두 빈 가계부로 시작한다", () => {
-  const state = createInitialState();
-  assert.deepEqual(state.receipts, []);
-  assert.deepEqual(state.trip, { ...EMPTY_TRIP });
-  assert.equal(tripReady(state.trip), false);
-  const summary = summarize(state.receipts, state.trip.budget);
-  assert.equal(summary.total, 0);
-  assert.equal(summary.percent, 0);
-});
-test("여행은 도시·국가·기간이 모두 있어야 설정된 것으로 본다", () => {
-  const trip = {
-    ...EMPTY_TRIP,
-    city: "도쿄",
-    country: "일본",
-    start: "2026-10-24",
-    end: "2026-10-30",
-    budget: 600000,
-  };
-  assert.equal(tripReady(trip), true);
-  for (const override of [
-    { city: " " },
-    { country: "" },
-    { start: "2026-02-30" },
-    { end: "" },
-    { start: "2026-11-01" },
-  ])
-    assert.equal(tripReady({ ...trip, ...override }), false, JSON.stringify(override));
-});
-test("저장된 가계부에서 예전 기본 영수증과 바꾸지 않은 기본 여행(파리·도쿄)만 비운다", () => {
-  const parisTrip = {
-    city: "파리",
-    country: "프랑스",
-    start: "2026-10-24",
-    end: "2026-10-30",
-    budget: 1000000,
-    currency: "EUR",
-    rate: 1600,
-  };
-  const saved = {
-    version: 1,
-    trip: parisTrip,
-    receipts: [
-      // 예전 파리 시연 데이터와 같은 id
-      { ...createDemo().receipts[0], id: "demo-hotel", store: "메종 블루 호텔", currency: "EUR" },
-      { ...createDemo().receipts[4], id: "demo-metro", store: "파리 메트로", currency: "EUR" },
-      receipt({ id: "real-1" }),
-      receipt({ id: "receipt-sample", demo: true }),
-      // id가 같아도 직접 등록한 영수증(demo 아님)은 지우지 않습니다.
-      receipt({ id: "demo-cafe", demo: false }),
-    ],
-  };
-  const cleaned = withoutDefaults(saved);
-  assert.deepEqual(
-    cleaned.receipts.map((r) => r.id),
-    ["real-1", "receipt-sample", "demo-cafe"],
+test("추천순 개인화 요약은 남은 예산 비율과 가장 많이 쓴 카테고리를 돌려준다", () => {
+  const state = createDemo();
+  const sum = summarize(state.receipts, state.trip.budget);
+  assert.deepEqual(recommendProfile(sum, state.trip.budget), {
+    budgetLeft: 30,
+    favorite: "숙박",
+  });
+  // 예산을 크게 넘으면 -100%로 자르고, 기록이 없으면 카테고리는 null입니다.
+  assert.equal(
+    recommendProfile(summarize(state.receipts, 100000), 100000).budgetLeft,
+    -100,
   );
-  assert.deepEqual(cleaned.trip, { ...EMPTY_TRIP });
-  assert.deepEqual(withoutDefaults({ ...saved, trip: createDemo().trip }).trip, { ...EMPTY_TRIP });
-  // 예산을 바꾼 여행은 사용자가 고친 것이므로 그대로 둡니다.
-  const edited = { ...parisTrip, budget: 600000 };
-  assert.equal(withoutDefaults({ ...saved, trip: edited }).trip, edited);
-  assert.equal(saved.receipts.length, 5);
+  assert.deepEqual(recommendProfile(summarize([], 1000000), 1000000), {
+    budgetLeft: 100,
+    favorite: null,
+  });
+});
+test("소비 인사이트 요청은 여행 설정과 카테고리별 원화 합계만 담는다", () => {
+  const state = createDemo();
+  const body = insightRequest(state);
+  assert.deepEqual(Object.keys(body), ["trip", "categories"]);
+  assert.equal(body.trip, state.trip);
+  assert.deepEqual(Object.keys(body.categories), [
+    "음식",
+    "쇼핑",
+    "숙박",
+    "교통",
+    "관광",
+    "기타",
+  ]);
+  assert.equal(
+    Object.values(body.categories).reduce((s, v) => s + v, 0),
+    702388,
+  );
+  // 매장·상품·영수증 원문은 보내지 않습니다.
+  assert.ok(!JSON.stringify(body).includes("데일리마트"));
 });

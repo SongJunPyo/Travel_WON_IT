@@ -16,13 +16,12 @@ export function TripSettings({
   onClear: () => void;
 }) {
   const [draft, setDraft] = useState(trip),
-    [budget, setBudget] = useState(trip.budget ? String(trip.budget) : ""),
+    [budget, setBudget] = useState(String(trip.budget)),
     [error, setError] = useState(""),
     [confirm, setConfirm] = useState(false);
   function save() {
     try {
       if (!draft.city.trim()) throw new Error("여행 도시를 입력해 주세요.");
-      if (!draft.country.trim()) throw new Error("여행 국가를 입력해 주세요.");
       if (
         !validDate(draft.start) ||
         !validDate(draft.end) ||
@@ -32,7 +31,6 @@ export function TripSettings({
       onSave({
         ...draft,
         city: draft.city.trim(),
-        country: draft.country.trim(),
         budget: parseMoney(budget, "KRW"),
       });
     } catch (e) {
@@ -50,15 +48,7 @@ export function TripSettings({
         label="여행 도시"
         value={draft.city}
         onChangeText={(city) => setDraft({ ...draft, city })}
-        placeholder="예: 도쿄"
         testID="trip-city"
-      />
-      <Field
-        label="여행 국가"
-        value={draft.country}
-        onChangeText={(country) => setDraft({ ...draft, country })}
-        placeholder="예: 일본"
-        testID="trip-country"
       />
       <View style={{ flexDirection: "row", gap: 12 }}>
         <Field
@@ -66,14 +56,12 @@ export function TripSettings({
           value={draft.start}
           onChangeText={(start) => setDraft({ ...draft, start })}
           placeholder="YYYY-MM-DD"
-          testID="trip-start"
         />
         <Field
           label="여행 종료일"
           value={draft.end}
           onChangeText={(end) => setDraft({ ...draft, end })}
           placeholder="YYYY-MM-DD"
-          testID="trip-end"
         />
       </View>
       <Field
@@ -81,11 +69,11 @@ export function TripSettings({
         value={budget}
         onChangeText={setBudget}
         keyboardType="number-pad"
-        placeholder="예: 1000000"
         testID="trip-budget"
       />
       <Text style={s.note}>
-        원화 환산에는 각 영수증에 입력한 적용 환율을 사용해요.
+        원화 환산에는 각 영수증에 입력한 환율을 사용해요. 시연 환율 1 EUR =
+        1,600원은 실시간 환율이 아니에요.
       </Text>
       {error ? (
         <Text accessibilityRole="alert" style={s.error}>
