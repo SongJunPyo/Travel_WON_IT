@@ -188,6 +188,10 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.records[1].distance").isNumber());
         prices("&category=음식&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
         prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
+        // 거리순: 조회 위치(신주쿠역)에서 가까운 매장 A가 먼저입니다.
+        prices("&category=음식&sort=거리순").andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                .andExpect(jsonPath("$.records[1].store").value("테스트 매장 B"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
     }
     @Test void 추천순은_가격_인기_최근성_거리를_합친_점수로_정렬하고_이유를_붙인다() throws Exception {
@@ -365,7 +369,7 @@ class TravelApiTest {
     @Test void 잘못된_조회_조건은_거부한다() throws Exception {
         mvc.perform(get("/prices")).andExpect(status().isBadRequest());
         prices("&category=카페").andExpect(status().isBadRequest());
-        prices("&sort=거리순").andExpect(status().isBadRequest());
+        prices("&sort=멀리순").andExpect(status().isBadRequest());
         prices("&radius=50000").andExpect(status().isBadRequest());
         prices("&q=--").andExpect(status().isBadRequest());
         mvc.perform(get("/prices?currency=JPY&latitude=abc&longitude=" + LNG)).andExpect(status().isBadRequest());

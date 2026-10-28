@@ -389,3 +389,7 @@ test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히�
   assert.equal(filled.start, "2026-10-24");
   assert.equal(filled.end, "2026-10-29");
 });
+test("카테고리 둘러보기 거리순 정렬을 쓸 수 있다", async () => {
+  const { BROWSE_SORTS } = await import("../src/domain.mjs");
+  assert.equal(BROWSE_SORTS.find((s) => s.name === "거리순").ready, true);
+});

@@ -210,13 +210,13 @@ export const BROWSE_CATEGORIES = [
   { name: "액티비티", icon: "mountain", color: "#B7791F" },
   { name: "렌트", icon: "car", color: "#47617A" },
 ];
-// 거리순은 현재 위치 연동 후 제공합니다. 추천순은 서버가 가격·인기·최근성·거리와 내 가계부 요약으로 정합니다.
+// 거리순은 조회 위치(시연은 신주쿠역)에서 가까운 순입니다. 추천순은 서버가 가격·인기·최근성·거리와 내 가계부 요약으로 정합니다.
 export const BROWSE_SORTS = [
   { name: "추천순", ready: true },
   { name: "가격순", ready: true },
   { name: "구매수", ready: true },
   { name: "최신순", ready: true },
-  { name: "거리순", ready: false },
+  { name: "거리순", ready: true },
 ];
 // 시연 위치: 도쿄 신주쿠역. PAGE 2는 이 위치 반경 3km의 공유 영수증을 서버에서 조회합니다.
 export const DEMO_LOCATION = { latitude: 35.6896, longitude: 139.7006 };

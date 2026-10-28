@@ -763,9 +763,10 @@ try {
   await check(`${firstBrowse}.includes('구매 3회')`, "카테고리 구매수 정렬");
   await click("browse-sort-최신순");
   await check(`${firstBrowse}.includes('카페 모쿠 C')`, "카테고리 최신순 정렬");
+  await click("browse-sort-거리순");
   await check(
-    `document.querySelector('[data-testid="browse-sort-거리순"]').getAttribute('aria-disabled')==='true'`,
-    "거리순 필터는 비활성",
+    `(()=>{const d=[...document.querySelectorAll('[data-testid^=card-distance-]')].map(e=>{const m=e.textContent.match(/([\\d.]+)(km|m)/);return m?parseFloat(m[1])*(m[2]==='km'?1000:1):NaN});return d.length===3&&d.every((v,i)=>!isNaN(v)&&(i===0||d[i-1]<=v))})()`,
+    "카테고리 거리순 정렬 (가까운 매장부터)",
   );
   await click("category-음식");
   await check(
