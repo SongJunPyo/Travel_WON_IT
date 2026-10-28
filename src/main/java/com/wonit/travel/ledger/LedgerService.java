@@ -44,7 +44,7 @@ public class LedgerService {
         String tokenHash = hash(authorization);
         if (state == null || !Integer.valueOf(1).equals(state.version()) || state.receipts() == null)
             throw new ApiException(400, "가계부 형식을 확인해 주세요.");
-        TripData t = validate(state.trip());
+        TripData t = validateTrip(state.trip());
         List<ReceiptData> rows = state.receipts().stream().filter(r -> r == null || !Boolean.TRUE.equals(r.demo())).map(this::validate).toList();
         if (rows.size() > 1000) throw new ApiException(400, "기기당 영수증은 1,000개까지 저장할 수 있어요.");
         Device device = devices.findByTokenHash(tokenHash).orElseGet(() -> devices.saveAndFlush(new Device(tokenHash)));
@@ -67,7 +67,8 @@ public class LedgerService {
         try { return LocalDateTime.ofInstant(Instant.parse(value), ZoneId.systemDefault()); }
         catch (RuntimeException e) { return LocalDateTime.now(); }
     }
-    private TripData validate(TripData t) {
+    // 소비 인사이트(InsightService)도 같은 규칙으로 여행 설정을 검사합니다.
+    public static TripData validateTrip(TripData t) {
         if (t == null || !text(t.city(), 50) || !text(t.country(), 50) || !date(t.start()) || !date(t.end())
                 || LocalDate.parse(t.start()).isAfter(LocalDate.parse(t.end())) || !in(CURRENCIES, t.currency())
                 || t.budget() == null || t.budget() < 0 || t.budget() > 1_000_000_000_000L || !rate(t.rate()))
@@ -120,7 +121,8 @@ public class LedgerService {
     private static boolean date(String value) {
         try { return value != null && LocalDate.parse(value).toString().equals(value); } catch (RuntimeException e) { return false; }
     }
-    private static String hash(String authorization) {
+    // 소비 인사이트는 비교 기준에서 요청한 기기 자신을 빼려고 같은 해시를 씁니다.
+    public static String hash(String authorization) {
         if (authorization == null || !authorization.matches("Bearer [\\w-]{40,160}"))
             throw new ApiException(401, "기기 식별 토큰이 필요해요.");
         try {

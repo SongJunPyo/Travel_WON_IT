@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import type { ExchangeRate, Price, TravelState } from "./types";
+import type { ExchangeRate, Insight, Price, TravelState } from "./types";
 
 export const API_URL = (
   process.env.EXPO_PUBLIC_API_URL ||
@@ -7,9 +7,14 @@ export const API_URL = (
 ).replace(/\/$/, "");
 export async function request(path: string, init: RequestInit = {}) {
   const controller = new AbortController();
+  // 사진 분석은 65초, AI를 함께 부르는 추천순·소비 인사이트는 15초(서버 AI 제한 8초 + 조회 시간)까지 기다립니다.
   const timer = setTimeout(
     () => controller.abort(),
-    path === "/api/receipts/ocr" ? 65000 : 8000,
+    path === "/api/receipts/ocr"
+      ? 65000
+      : path === "/insight" || path.startsWith("/prices")
+        ? 15000
+        : 8000,
   );
   try {
     // 사진 업로드(FormData)는 브라우저·RN이 multipart 경계를 직접 붙이도록 Content-Type을 비워 둡니다.
@@ -52,6 +57,17 @@ export async function syncLedger(
     body: JSON.stringify(state),
   });
 }
+/** PAGE 1 소비 인사이트: 가계부 요약을 보내 분석 문장과 근거 숫자를 받습니다. 토큰이 있으면 비교 기준에서 이 기기를 뺍니다. */
+export async function fetchInsight(
+  body: unknown,
+  deviceToken: string,
+): Promise<Insight> {
+  return request("/insight", {
+    method: "POST",
+    headers: deviceToken ? auth(deviceToken) : {},
+    body: JSON.stringify(body),
+  });
+}
 /** PAGE 2: 위치 반경 안의 공유 영수증을 카테고리(category)나 상품명(q)으로 찾아 매장·상품별 최근 가격을 받습니다. */
 export async function fetchPrices(params: {
   currency: string;
@@ -59,6 +75,9 @@ export async function fetchPrices(params: {
   category?: string;
   q?: string;
   sort?: string;
+  // 추천순 개인화: 남은 예산 비율(%)과 가장 많이 쓴 카테고리
+  budgetLeft?: number | null;
+  favorite?: string | null;
 }): Promise<Price[]> {
   const query = new URLSearchParams({
     currency: params.currency,
@@ -68,6 +87,9 @@ export async function fetchPrices(params: {
   if (params.category) query.set("category", params.category);
   if (params.q) query.set("q", params.q);
   if (params.sort) query.set("sort", params.sort);
+  if (params.budgetLeft != null)
+    query.set("budgetLeft", String(params.budgetLeft));
+  if (params.favorite) query.set("favorite", params.favorite);
   return (await request(`/prices?${query}`)).records;
 }
 /** 적용 환율 칸에 채울 참고 환율(1 외화당 원화)과 고시일을 받습니다. */

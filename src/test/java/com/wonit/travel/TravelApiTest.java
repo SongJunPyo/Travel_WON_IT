@@ -4,6 +4,10 @@ import com.wonit.travel.api.DomainException;
 import com.wonit.travel.api.ErrorCode;
 import com.wonit.travel.ocr.ReceiptReader;
 import com.wonit.travel.ocr.RecognizedReceipt;
+import com.wonit.travel.price.PriceRanker;
+import com.wonit.travel.insight.SpendingAdvisor;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import com.wonit.travel.rate.RateSource;
 import com.wonit.travel.ledger.DeviceRepository;
 import com.wonit.travel.ledger.ReceiptRepository;
@@ -33,6 +37,9 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -48,6 +55,10 @@ class TravelApiTest {
     // Claude 영수증 리더와 한국수출입은행 API 대신 쓰는 가짜 구현. 테스트에서는 외부를 부르지 않습니다.
     ReceiptReader reader = mock(ReceiptReader.class);
     RateSource rateSource = mock(RateSource.class);
+    // 추천순 AI 재정렬 대신 쓰는 가짜 구현. 기본은 '키 없음'(configured=false)이라 점수 순서만 씁니다.
+    PriceRanker ranker = mock(PriceRanker.class);
+    // 소비 인사이트 AI 대신 쓰는 가짜 구현. 기본은 '키 없음'이라 규칙 기반 문장만 씁니다.
+    SpendingAdvisor advisor = mock(SpendingAdvisor.class);
     ConfigurableApplicationContext context;
     private final String tokenA = "Bearer " + "a".repeat(64), tokenB = "Bearer " + "b".repeat(64);
     @BeforeAll void start() {
@@ -55,6 +66,8 @@ class TravelApiTest {
                 .initializers(ctx -> {
                     ((GenericApplicationContext) ctx).registerBean("testReceiptReader", ReceiptReader.class, () -> reader, bd -> bd.setPrimary(true));
                     ((GenericApplicationContext) ctx).registerBean("testRateSource", RateSource.class, () -> rateSource, bd -> bd.setPrimary(true));
+                    ((GenericApplicationContext) ctx).registerBean("testPriceRanker", PriceRanker.class, () -> ranker, bd -> bd.setPrimary(true));
+                    ((GenericApplicationContext) ctx).registerBean("testSpendingAdvisor", SpendingAdvisor.class, () -> advisor, bd -> bd.setPrimary(true));
                 })
                 .run("--server.port=0", "--spring.datasource.url=jdbc:h2:mem:wonhae-tests", "--spring.jpa.hibernate.ddl-auto=create-drop");
         mvc = MockMvcBuilders.webAppContextSetup((WebApplicationContext) context)
@@ -65,7 +78,7 @@ class TravelApiTest {
         receipts = context.getBean(ReceiptRepository.class);
     }
     @AfterAll void stop() { if (context != null) context.close(); }
-    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(reader, rateSource); }
+    @BeforeEach void clean() { receipts.deleteAll(); trips.deleteAll(); devices.deleteAll(); reset(reader, rateSource, ranker, advisor); }
     // 도쿄 신주쿠역 근처 시연 위치입니다.
     private static final double LAT = 35.6896, LNG = 139.7006;
     private int nextId = 0;
@@ -176,6 +189,140 @@ class TravelApiTest {
         prices("&category=음식&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
         prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
+    }
+    @Test void 추천순은_가격_인기_최근성_거리를_합친_점수로_정렬하고_이유를_붙인다() throws Exception {
+        save(tokenB, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-26", 300, true),
+                receipt("테스트 매장 B", 35.6930, 139.7040, "2026-10-25", 280, true),
+                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true))).andExpect(status().isOk());
+        save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
+        // A: 가장 비싸지만 구매 2회·가장 가까움, C: 주변 최저가지만 2km 넘게 떨어짐
+        for (String budget : List.of("", "&budgetLeft=10&favorite=음식"))
+            prices("&q=doritos&sort=추천순" + budget)
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(3))
+                    .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                    .andExpect(jsonPath("$.records[0].reason").value("구매 2회로 가장 많음"))
+                    .andExpect(jsonPath("$.records[1].store").value("테스트 매장 B"))
+                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 C"))
+                    .andExpect(jsonPath("$.records[2].reason").value("주변 최저가"))
+                    .andExpect(jsonPath("$.records[0].ai").value(false));
+        // 다른 정렬에는 추천 이유를 붙이지 않습니다.
+        prices("&q=doritos").andExpect(jsonPath("$.records[0].store").value("테스트 매장 C"))
+                .andExpect(jsonPath("$.records[0].reason").isEmpty());
+        prices("&q=doritos&budgetLeft=500").andExpect(status().isBadRequest());
+        prices("&q=doritos&favorite=카페").andExpect(status().isBadRequest());
+    }
+    @Test void 추천순_AI_재정렬은_후보_안에서만_순서를_바꾸고_실패하면_점수_순서를_쓴다() throws Exception {
+        save(tokenB, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-26", 300, true),
+                receipt("테스트 매장 B", 35.6930, 139.7040, "2026-10-25", 280, true),
+                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true))).andExpect(status().isOk());
+        save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
+        var byScore = mvc.perform(get("/prices?currency=JPY&latitude=" + LAT + "&longitude=" + LNG + "&q=doritos")).andReturn().getResponse().getContentAsString();
+        var ids = mapper.readTree(byScore).get("records");
+        String a = null, b = null, c = null;
+        for (var r : ids) switch (r.get("store").asString()) {
+            case "테스트 매장 A" -> a = r.get("id").asString();
+            case "테스트 매장 B" -> b = r.get("id").asString();
+            default -> c = r.get("id").asString();
+        }
+        when(ranker.configured()).thenReturn(true);
+        // C를 맨 앞으로, 없는 id와 중복 id, 빈 이유, 너무 긴 이유를 섞어 돌려줍니다. B는 빠뜨립니다.
+        when(ranker.rank(any(), any())).thenReturn(List.of(new PriceRanker.Pick(c, "주변보다 11% 저렴해요\n"),
+                new PriceRanker.Pick("없는-id", "무시"), new PriceRanker.Pick(c, "중복"), new PriceRanker.Pick(a, "가".repeat(60))));
+        for (int i = 0; i < 2; i++)
+            prices("&q=doritos&sort=추천순").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(3))
+                    .andExpect(jsonPath("$.records[0].store").value("테스트 매장 C"))
+                    .andExpect(jsonPath("$.records[0].reason").value("주변보다 11% 저렴해요"))
+                    .andExpect(jsonPath("$.records[0].ai").value(true))
+                    .andExpect(jsonPath("$.records[1].store").value("테스트 매장 A"))
+                    .andExpect(jsonPath("$.records[1].reason").value("가".repeat(40)))
+                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 B"))
+                    .andExpect(jsonPath("$.records[2].ai").value(false));
+        // 같은 조건·같은 후보는 캐시를 써서 AI를 한 번만 부릅니다.
+        verify(ranker, times(1)).rank(any(), any());
+        // AI가 실패하면(시간 초과 등) 1단계 점수 순서와 규칙 이유를 그대로 씁니다.
+        when(ranker.rank(any(), any())).thenThrow(new IllegalStateException("추천 AI 시간 초과"));
+        prices("&q=doritos&sort=추천순&budgetLeft=10").andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                .andExpect(jsonPath("$.records[0].reason").value("구매 2회로 가장 많음"))
+                .andExpect(jsonPath("$.records[0].ai").value(false));
+        // 추천순이 아닌 정렬은 AI를 부르지 않습니다.
+        prices("&q=doritos&sort=구매수").andExpect(status().isOk());
+        verify(ranker, times(2)).rank(any(), any());
+    }
+    // 소비 인사이트: 여행을 마친 도쿄 여행자 5명(각 5일, 예산 500,000원, 음식 200,000원 + 숙박 300,000원)을 저장합니다.
+    private final LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+    private String peerToken(int i) { return "Bearer " + ("peer" + i).repeat(12); }
+    private void savePeers() throws Exception {
+        for (int i = 1; i <= 5; i++) {
+            var food = receipt("피어 식당 " + i, 35.69, 139.70, today.minusDays(18).toString(), 20000, true);
+            food.put("rate", 10);
+            var hotel = receipt("피어 호텔 " + i, 35.69, 139.70, today.minusDays(20).toString(), 30000, true);
+            hotel.put("rate", 10); hotel.put("category", "숙박");
+            var trip = trip();
+            trip.put("start", today.minusDays(20).toString()); trip.put("end", today.minusDays(16).toString());
+            trip.put("budget", 500_000); trip.put("rate", 10);
+            mvc.perform(put("/ledger").header("Authorization", peerToken(i)).contentType("application/json")
+                    .content(mapper.writeValueAsString(Map.of("version", 1, "trip", trip, "receipts", List.of(food, hotel)))))
+                    .andExpect(status().isOk());
+        }
+    }
+    // 내 여행: 7일 중 5일째(오늘 포함), 예산 1,000,000원, 음식 450,000원 + 숙박 250,000원
+    private ResultActions insight(String token, long food, long hotel) throws Exception {
+        var trip = trip();
+        trip.put("start", today.minusDays(4).toString()); trip.put("end", today.plusDays(2).toString());
+        var body = Map.of("trip", trip, "categories", Map.of("음식", food, "숙박", hotel));
+        var request = post("/insight").contentType("application/json").content(mapper.writeValueAsString(body));
+        return mvc.perform(token == null ? request : request.header("Authorization", token));
+    }
+    @Test void 소비_인사이트는_여행을_마친_같은_도시_여행자와_비교한_숫자로_규칙_문장을_만든다() throws Exception {
+        savePeers();
+        insight(null, 450_000, 250_000).andExpect(status().isOk())
+                .andExpect(jsonPath("$.ai").value(false))
+                .andExpect(jsonPath("$.headline").value("예산 안에서 잘 쓰고 있어요"))
+                .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중은 64%로, 여행을 마친 도쿄 여행자 5명 평균보다 24%p 높아요."))
+                .andExpect(jsonPath("$.tip").value("남은 2일은 하루 150,000원 안에서 쓰면 예산을 지킬 수 있어요."))
+                .andExpect(jsonPath("$.facts[0]").value("예산 70% 사용 · 여행 71% 경과"))
+                .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원 · 여행자 중앙값 100,000원"))
+                .andExpect(jsonPath("$.facts[2]").value("이 속도면 총 980,000원"))
+                .andExpect(jsonPath("$.basis").value("여행을 마친 도쿄 여행자 5명"))
+                .andExpect(jsonPath("$.sampleData").value(false));
+        // 요청한 기기 자신은 비교 기준에서 빠져 4명이 되고, 5명 미만이면 다른 여행자와 비교하지 않습니다.
+        insight(peerToken(1), 450_000, 250_000).andExpect(status().isOk())
+                .andExpect(jsonPath("$.basis").isEmpty())
+                .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중이 64%로 가장 커요."))
+                .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원"));
+        // 지출이 없으면 안내만 합니다.
+        insight(null, 0, 0).andExpect(jsonPath("$.headline").value("첫 영수증을 기록해 보세요")).andExpect(jsonPath("$.facts.length()").value(0));
+        verify(advisor, never()).advise(any());
+    }
+    @Test void 소비_인사이트_AI_문장은_계산한_숫자만_쓸_때_보여주고_아니면_규칙_문장을_쓴다() throws Exception {
+        savePeers();
+        when(advisor.configured()).thenReturn(true);
+        when(advisor.advise(any())).thenReturn(new SpendingAdvisor.Advice("음식에 24%p 더 쓰고 있어요",
+                "예산의 70%를 썼어요.\n이 속도면 980,000원이에요.", "남은 2일은 하루 150,000원이면 충분해요"));
+        for (int i = 0; i < 2; i++)
+            insight(null, 450_000, 250_000).andExpect(status().isOk()).andExpect(jsonPath("$.ai").value(true))
+                    .andExpect(jsonPath("$.headline").value("음식에 24%p 더 쓰고 있어요"))
+                    .andExpect(jsonPath("$.body").value("예산의 70%를 썼어요. 이 속도면 980,000원이에요."))
+                    .andExpect(jsonPath("$.facts[0]").value("예산 70% 사용 · 여행 71% 경과"))
+                    .andExpect(jsonPath("$.basis").value("여행을 마친 도쿄 여행자 5명"));
+        // 같은 숫자면 캐시를 써서 AI를 한 번만 부릅니다. AI에는 서버가 계산한 숫자만 보냅니다.
+        verify(advisor, times(1)).advise(any());
+        // 계산하지 않은 숫자(85%)를 쓰면 AI 문장을 버리고 규칙 기반 문장을 씁니다.
+        when(advisor.advise(any())).thenReturn(new SpendingAdvisor.Advice("예산의 85%를 썼어요", "음식이 많아요.", null));
+        insight(null, 460_000, 250_000).andExpect(status().isOk()).andExpect(jsonPath("$.ai").value(false))
+                .andExpect(jsonPath("$.headline").value("예산 안에서 잘 쓰고 있어요"));
+        // AI가 실패해도(시간 초과 등) 규칙 기반 문장을 씁니다.
+        when(advisor.advise(any())).thenThrow(new IllegalStateException("spending-advisor: 시간 초과"));
+        insight(null, 470_000, 250_000).andExpect(status().isOk()).andExpect(jsonPath("$.ai").value(false))
+                .andExpect(jsonPath("$.tip").isNotEmpty());
+    }
+    @Test void 소비_인사이트는_잘못된_요약을_거부한다() throws Exception {
+        var trip = trip();
+        for (var body : List.<Map<String, Object>>of(Map.of("trip", trip, "categories", Map.of("카페", 1000)),
+                Map.of("trip", trip, "categories", Map.of("음식", -1)), Map.of("categories", Map.of("음식", 1000)), Map.of("trip", trip)))
+            mvc.perform(post("/insight").contentType("application/json").content(mapper.writeValueAsString(body)))
+                    .andExpect(status().isBadRequest());
     }
     @Test void 상품_검색은_대소문자와_한국어_이름으로_찾는다() throws Exception {
         save(tokenA, List.of(receipt())).andExpect(status().isOk());

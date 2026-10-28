@@ -14,7 +14,10 @@
     "build:web": "expo export --platform web",
     "server": "./gradlew bootRun",
     "server:mysql": "./gradlew bootRun --args='--spring.profiles.active=mysql'",
+    "server:mysql:safe": "./gradlew bootRun --args='--spring.profiles.active=mysql --spring.jpa.hibernate.ddl-auto=validate --spring.sql.init.mode=never'",
     "sample-data": "node scripts/sample-data.mjs",
+    "db:snapshot": "node scripts/db-snapshot.mjs create",
+    "db:verify": "node scripts/db-snapshot.mjs verify",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:browser": "npm run build:web && ./gradlew bootJar && node scripts/browser-check.mjs"

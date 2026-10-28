@@ -20,6 +20,8 @@ import {
   fingerprint,
   validDate,
   spendingInsight,
+  recommendProfile,
+  insightRequest,
 } from "../src/domain.mjs";
 
 const receipt = (overrides = {}) => ({

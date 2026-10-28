@@ -264,6 +264,7 @@ npx expo-doctor
 
 ## 관련 문서
 
+- [db-backups/README.md](db-backups/README.md): 4개 테이블·가데이터 시점별 보관, 프로젝트 밖 사본, 안전 실행·복구 절차 (`npm run db:snapshot`, `npm run db:verify`, `npm run server:mysql:safe`)
 - [SPEC.md](SPEC.md): 요구사항, 기술 버전과 근거, 테스트·작업 목록
 - [docs/db-design.md](docs/db-design.md): `travel_won` DB 설계와 화면별 쿼리
 - [docs/results.md](docs/results.md): 요구사항·구조 검토 결과와 결정 기록

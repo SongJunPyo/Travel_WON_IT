@@ -165,6 +165,29 @@ export function spendingInsight(summary) {
   const diff = Math.abs(Math.round(top.delta));
   return `이번 여행은 ${top.name}에 가장 많이 사용했어요. ${top.name} 비중은 ${Math.round(top.ratio)}%로, 시연 평균${diff ? `보다 ${diff}%p ${top.delta > 0 ? "높아요" : "낮아요"}` : "과 같아요"}.`;
 }
+// 추천순 개인화에 쓰는 가계부 요약: 남은 예산 비율(%, -100~100)과 가장 많이 쓴 카테고리(기록이 없으면 null)
+export function recommendProfile(summary, budget) {
+  const top = [...summary.categories].sort((a, b) => b.ratio - a.ratio)[0];
+  return {
+    budgetLeft: budget
+      ? Math.max(
+          -100,
+          Math.min(100, Math.round((summary.remaining / budget) * 100)),
+        )
+      : null,
+    favorite: summary.total ? top.name : null,
+  };
+}
+// 소비 인사이트 요청: 여행 설정과 카테고리별 원화 지출 합계만 보냅니다. 영수증·매장·상품은 보내지 않습니다.
+export function insightRequest(state) {
+  const summary = summarize(state.receipts, state.trip.budget);
+  return {
+    trip: state.trip,
+    categories: Object.fromEntries(
+      summary.categories.map((c) => [c.name, c.amount]),
+    ),
+  };
+}
 export function distanceMeters(a, b) {
   const rad = (n) => (n * Math.PI) / 180;
   const dLat = rad(b.latitude - a.latitude),
@@ -187,8 +210,9 @@ export const BROWSE_CATEGORIES = [
   { name: "액티비티", icon: "mountain", color: "#B7791F" },
   { name: "렌트", icon: "car", color: "#47617A" },
 ];
-// 거리순은 현재 위치 연동 후 제공합니다.
+// 거리순은 현재 위치 연동 후 제공합니다. 추천순은 서버가 가격·인기·최근성·거리와 내 가계부 요약으로 정합니다.
 export const BROWSE_SORTS = [
+  { name: "추천순", ready: true },
   { name: "가격순", ready: true },
   { name: "구매수", ready: true },
   { name: "최신순", ready: true },
