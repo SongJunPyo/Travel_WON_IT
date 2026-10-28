@@ -356,7 +356,7 @@ function TravelApp() {
         >
           {[
             { id: "ledger", name: "여행 가계부", icon: "wallet" },
-            { id: "compare", name: "주변 가격 비교", icon: "pin" },
+            { id: "compare", name: "우리 AI 추천", icon: "pin" },
           ].map((item) => (
             <Pressable
               key={item.id}

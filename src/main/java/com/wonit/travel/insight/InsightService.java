@@ -32,7 +32,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 // PAGE 1 '나의 소비 인사이트'.
 // 1) 숫자는 서버가 계산합니다: 내 가계부(예산 속도·예상 총지출·남은 기간 하루 권장액)와,
-//    이미 여행을 마친 같은 도시·통화 여행자들의 실제 기록(카테고리 비중 평균·하루 지출 중앙값·예산 사용률 중앙값).
+//    최근 1달 안에 여행을 마친 같은 나라·통화 여행자들의 실제 기록(카테고리 비중 평균·하루 지출 중앙값·예산 사용률 중앙값).
 // 2) AI는 그 숫자만으로 문장을 씁니다. 문장에 계산하지 않은 숫자가 나오면 버리고 규칙 기반 문장을 씁니다.
 @Service
 public class InsightService {
@@ -40,6 +40,8 @@ public class InsightService {
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     // 개인의 지출을 짐작할 수 없도록 5명 이상일 때만 다른 여행자와 비교합니다.
     private static final int MIN_PEERS = 5;
+    // 비교 기준은 최근 1달 안에 끝난 여행만 씁니다(물가·환율이 비슷한 시기끼리 비교).
+    private static final int PEER_MONTHS = 1;
     // 일차별 누적 비교는 최대 60일차까지 계산합니다.
     private static final int MAX_CUMULATIVE_DAYS = 60;
     private static final List<String> CATEGORIES = List.of("음식", "쇼핑", "숙박", "교통", "관광", "기타");
@@ -101,14 +103,14 @@ public class InsightService {
         }
     }
 
-    // 이미 끝난 같은 도시·통화 여행을 기기별로 모읍니다. DB 집계는 도시·통화·날짜별로 10분 캐시하고,
+    // 최근 1달 안에(종료일이 1달 전 ~ 어제) 끝난 같은 나라·통화 여행을 기기별로 모읍니다. DB 집계는 나라·통화·날짜별로 10분 캐시하고,
     // 그사이 누군가 영수증을 새로 저장하면(가장 최근 영수증 번호가 바뀌면) 다시 집계합니다.
     private List<PeerTrip> peers(TripData trip, LocalDate today, Long self) {
-        String key = trip.city() + "|" + trip.currency() + "|" + today + "|" + receipts.lastId();
+        String key = trip.country() + "|" + trip.currency() + "|" + today + "|" + receipts.lastId();
         List<PeerTrip> all = peerCache.get(key);
         if (all == null) {
             Map<Long, PeerTrip> byDevice = new LinkedHashMap<>();
-            for (Object[] row : receipts.spendingOfFinishedTrips(trip.city(), trip.currency(), today)) {
+            for (Object[] row : receipts.spendingOfRecentTrips(trip.country(), trip.currency(), today.minusMonths(PEER_MONTHS), today)) {
                 long id = ((Number) row[0]).longValue();
                 PeerTrip peer = byDevice.computeIfAbsent(id, k -> new PeerTrip(id,
                         ChronoUnit.DAYS.between((LocalDate) row[1], (LocalDate) row[2]) + 1, ((Number) row[3]).longValue(),
@@ -143,7 +145,7 @@ public class InsightService {
         Long safeDaily = remaining > 0 && budget > total ? (budget - total) / remaining : null;
         Long over = budget > 0 && total > budget ? total - budget : null;
         boolean compare = peers.size() >= MIN_PEERS;
-        String group = compare ? "여행을 마친 " + trip.city() + " 여행자 " + peers.size() + "명" : null;
+        String group = compare ? "최근 " + PEER_MONTHS + "달 안에 여행을 마친 " + trip.country() + " 여행자 " + peers.size() + "명" : null;
 
         // 카테고리: 내 비중과 비교 기준 평균 비중(여행자별 비중의 평균)
         List<Map<String, Object>> categories = new ArrayList<>();

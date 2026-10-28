@@ -7,16 +7,18 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
-  Share,
 } from "react-native";
 import Svg, { Circle } from "react-native-svg";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import {
   CATEGORIES,
   cumulativeBars,
   cumulativeDayLabel,
   myCumulative,
-  ledgerCsv,
-  ledgerCsvName,
+  ledgerXlsx,
+  ledgerXlsxName,
+  XLSX_MIME,
   summarize,
   spendingInsight,
   insightRequest,
@@ -93,17 +95,17 @@ export function Ledger({
   const bars = cumulativeBars(mine, peerCumulative, day);
   const barMax = Math.max(bars.me, bars.average ?? 0, 1);
   const [exportMessage, setExportMessage] = useState("");
-  // 가계부 CSV 내보내기: 웹은 파일로 내려받고, 앱은 공유 시트로 보냅니다(새 라이브러리 없이 RN Share 사용).
-  async function exportCsv() {
+  // 가계부 엑셀 내보내기: 웹은 파일로 내려받고, 앱은 임시 폴더에 파일로 저장한 뒤 공유 시트로 보냅니다.
+  async function exportXlsx() {
     const today = new Intl.DateTimeFormat("sv-SE", {
       timeZone: "Asia/Seoul",
     }).format(new Date());
-    const csv = ledgerCsv(state),
-      name = ledgerCsvName(state.trip, today);
+    const bytes = ledgerXlsx(state),
+      name = ledgerXlsxName(state.trip, today);
     try {
       if (Platform.OS === "web") {
         const url = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv;charset=utf-8" }),
+          new Blob([bytes], { type: XLSX_MIME }),
         );
         const link = document.createElement("a");
         link.href = url;
@@ -111,7 +113,16 @@ export function Ledger({
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
-        await Share.share({ title: name, message: csv });
+        if (!(await Sharing.isAvailableAsync()))
+          throw new Error("이 기기에서는 파일을 공유할 수 없어요.");
+        const file = new File(Paths.cache, name);
+        file.create({ overwrite: true });
+        await file.write(bytes);
+        await Sharing.shareAsync(file.uri, {
+          mimeType: XLSX_MIME,
+          UTI: "org.openxmlformats.spreadsheetml.sheet",
+          dialogTitle: name,
+        });
       }
       setExportMessage(`${name} 파일로 내보냈어요.`);
     } catch {
@@ -416,7 +427,7 @@ export function Ledger({
               {bars.tone === "none"
                 ? peerCumulative
                   ? `${day}일차까지 여행한 다른 여행자가 5명 미만이라 비교할 수 없어요.`
-                  : "같은 도시를 다녀온 여행자 기록이 5명 이상 모이면 비교해 드려요."
+                  : "최근 1달 안에 같은 나라를 다녀온 여행자 기록이 5명 이상 모이면 비교해 드려요."
                 : bars.tone === "same"
                   ? `평균과 ${day}일차까지 비슷하게 썼어요.`
                   : `평균보다 ${day}일차에 ${won(Math.abs(bars.diff))}${bars.average ? `(${bars.percent}%)` : ""} ${bars.tone === "more" ? "더" : "덜"} 썼어요.`}
@@ -488,14 +499,14 @@ export function Ledger({
           {state.receipts.length ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="가계부 CSV로 내보내기"
+              accessibilityLabel="가계부 엑셀 파일로 내보내기"
               onPress={() => {
-                void exportCsv();
+                void exportXlsx();
               }}
-              testID="export-csv"
-              style={s.csvButton}
+              testID="export-xlsx"
+              style={s.exportButton}
             >
-              <Text style={s.csvButtonText}>CSV 내보내기</Text>
+              <Text style={s.exportButtonText}>엑셀 내보내기</Text>
             </Pressable>
           ) : null}
         </View>
@@ -689,7 +700,7 @@ const s = StyleSheet.create({
     letterSpacing: -0.6,
   },
   smallCaption: { color: colors.muted, fontSize: 10 },
-  csvButton: {
+  exportButton: {
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 999,
@@ -697,7 +708,7 @@ const s = StyleSheet.create({
     paddingVertical: 5,
     backgroundColor: "#fff",
   },
-  csvButtonText: { color: colors.primary, fontSize: 10, fontWeight: "700" },
+  exportButtonText: { color: colors.primary, fontSize: 10, fontWeight: "700" },
   exportMessage: {
     color: colors.muted,
     fontSize: 10,

@@ -465,35 +465,48 @@ export function cumulativeBars(mine, peers, day) {
     Math.abs(diff) <= average * 0.03 ? "same" : diff > 0 ? "more" : "less";
   return { me, average, diff, percent, tone };
 }
-// 가계부 CSV: 영수증 품목 한 줄씩. 엑셀에서 한글이 깨지지 않도록 BOM을 붙이고, 쉼표·따옴표·줄바꿈은 따옴표로 감쌉니다.
-const csvCell = (value) => {
-  const text = value == null ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
-export function ledgerCsv(state) {
-  const header = [
-    "구매일",
-    "매장명",
-    "매장명(한국어)",
-    "매장 주소",
-    "가계부 카테고리",
-    "상품명(원어)",
-    "상품명(한국어)",
-    "수량",
-    "개당 가격",
-    "품목 합계",
-    "통화",
-    "적용 환율",
-    "품목 원화 환산",
-    "영수증 총액",
-    "영수증 원화 환산",
-    "시연",
-  ];
-  const rows = [...state.receipts]
+// 가계부 엑셀(.xlsx): 영수증 품목 한 줄씩. 새 라이브러리 없이 시트 XML을 만들어 압축하지 않은 zip으로 묶습니다.
+// 구매일은 날짜, 금액·수량·환율은 숫자 셀이라 엑셀에서 바로 합계·정렬할 수 있습니다.
+export const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+// [열 제목, 열 너비]
+const LEDGER_COLUMNS = [
+  ["구매일", 11],
+  ["매장명", 20],
+  ["매장명(한국어)", 20],
+  ["매장 주소", 28],
+  ["가계부 카테고리", 10],
+  ["상품명(원어)", 26],
+  ["상품명(한국어)", 22],
+  ["수량", 6],
+  ["개당 가격", 11],
+  ["품목 합계", 11],
+  ["통화", 6],
+  ["적용 환율", 9],
+  ["품목 원화 환산", 13],
+  ["영수증 총액", 11],
+  ["영수증 원화 환산", 14],
+  ["시연", 5],
+];
+// 셀 서식 번호(styles.xml의 cellXfs 순서): 0 기본, 1 제목, 2 정수 #,##0, 3 소수 #,##0.00, 4 날짜 yyyy-mm-dd
+const STYLE = { header: 1, integer: 2, decimal: 3, date: 4 };
+// 엑셀 날짜 번호: 1970-01-01이 25569
+const excelDate = (date) => dayNumber(date) + 25569;
+function ledgerRows(state) {
+  return [...state.receipts]
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
-    .flatMap((r) =>
-      r.items.map((i) => [
-        r.date,
+    .flatMap((r) => {
+      const scale = CURRENCIES[r.currency].scale;
+      const amount = (minor) => ({
+        value: minor / scale,
+        style: scale === 1 ? STYLE.integer : STYLE.decimal,
+      });
+      const krw = (minor) => ({
+        value: toWon(minor, r.currency, r.rate),
+        style: STYLE.integer,
+      });
+      return r.items.map((i) => [
+        { value: excelDate(r.date), style: STYLE.date },
         r.store,
         r.storeKo || "",
         r.address || "",
@@ -501,20 +514,189 @@ export function ledgerCsv(state) {
         i.name,
         i.nameKo || "",
         i.quantity,
-        minorText(i.unitMinor, r.currency),
-        minorText(i.unitMinor * i.quantity, r.currency),
+        amount(i.unitMinor),
+        amount(i.unitMinor * i.quantity),
         r.currency,
-        r.rate,
-        toWon(i.unitMinor * i.quantity, r.currency, r.rate),
-        minorText(r.totalMinor, r.currency),
-        toWon(r.totalMinor, r.currency, r.rate),
+        Number(r.rate),
+        krw(i.unitMinor * i.quantity),
+        amount(r.totalMinor),
+        krw(r.totalMinor),
         r.demo ? "Y" : "",
-      ]),
-    );
+      ]);
+    });
+}
+// XML 글자: 특수문자를 바꾸고, XML에 쓸 수 없는 제어 문자는 뺍니다.
+const xmlText = (value) =>
+  String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+// 열 번호 → 엑셀 열 이름 (0 → A, 26 → AA)
+const columnName = (index) =>
+  (index >= 26 ? columnName(Math.floor(index / 26) - 1) : "") +
+  String.fromCharCode(65 + (index % 26));
+// 셀 하나. 문자열은 공유 문자열 표 없이 셀 안에 넣고(inlineStr), 빈 값은 셀을 만들지 않습니다.
+function xlsxCell(cell, ref) {
+  const { value, style } =
+    cell !== null && typeof cell === "object" ? cell : { value: cell, style: 0 };
+  const s = style ? ` s="${style}"` : "";
+  if (typeof value === "number")
+    return Number.isFinite(value) ? `<c r="${ref}"${s}><v>${value}</v></c>` : "";
+  if (value == null || value === "") return "";
+  return `<c r="${ref}" t="inlineStr"${s}><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`;
+}
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
+const DOC_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+function ledgerSheetXml(state) {
+  const header = LEDGER_COLUMNS.map(([title]) => ({
+    value: title,
+    style: STYLE.header,
+  }));
+  const rows = [header, ...ledgerRows(state)].map(
+    (row, r) =>
+      `<row r="${r + 1}">${row.map((cell, c) => xlsxCell(cell, columnName(c) + (r + 1))).join("")}</row>`,
+  );
+  const cols = LEDGER_COLUMNS.map(
+    ([, width], c) =>
+      `<col min="${c + 1}" max="${c + 1}" width="${width}" customWidth="1"/>`,
+  ).join("");
+  // 첫 줄(열 제목)은 스크롤해도 보이게 고정합니다.
   return (
-    "﻿" +
-    [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")
+    XML_HEAD +
+    `<worksheet xmlns="${SHEET_NS}"><sheetViews><sheetView workbookViewId="0">` +
+    `<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
+    `<cols>${cols}</cols><sheetData>${rows.join("")}</sheetData></worksheet>`
   );
 }
-export const ledgerCsvName = (trip, today) =>
-  `여행WON해_가계부_${(trip.city || "여행").replace(/[\\/:*?"<>|\s]+/g, "_")}_${today}.csv`;
+const XLSX_STYLES =
+  XML_HEAD +
+  `<styleSheet xmlns="${SHEET_NS}">` +
+  `<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts>` +
+  `<fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts>` +
+  `<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>` +
+  `<fill><patternFill patternType="solid"><fgColor rgb="FFEAF5FF"/></patternFill></fill></fills>` +
+  `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>` +
+  `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
+  `<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
+  `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
+  `<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+  `<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+  `<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>` +
+  `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+export function ledgerXlsx(state) {
+  return zip([
+    [
+      "[Content_Types].xml",
+      XML_HEAD +
+        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+        `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+        `<Default Extension="xml" ContentType="application/xml"/>` +
+        `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+        `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+        `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    ],
+    [
+      "_rels/.rels",
+      XML_HEAD +
+        `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${DOC_REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    ],
+    [
+      "xl/workbook.xml",
+      XML_HEAD +
+        `<workbook xmlns="${SHEET_NS}" xmlns:r="${DOC_REL}"><sheets><sheet name="가계부" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    ],
+    [
+      "xl/_rels/workbook.xml.rels",
+      XML_HEAD +
+        `<Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${DOC_REL}/worksheet" Target="worksheets/sheet1.xml"/>` +
+        `<Relationship Id="rId2" Type="${DOC_REL}/styles" Target="styles.xml"/></Relationships>`,
+    ],
+    ["xl/styles.xml", XLSX_STYLES],
+    ["xl/worksheets/sheet1.xml", ledgerSheetXml(state)],
+  ]);
+}
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+const crc32 = (bytes) => {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+// 압축하지 않은(stored) zip: [파일 이름, 내용 문자열] 목록 → 바이트. 파일 이름은 UTF-8, 시각은 1980-01-01로 고정합니다.
+function zip(files) {
+  const utf8 = new TextEncoder();
+  const entries = files.map(([name, text]) => {
+    const data = utf8.encode(text);
+    return { path: utf8.encode(name), data, crc: crc32(data) };
+  });
+  const size = entries.reduce(
+    (n, e) => n + 30 + 46 + e.path.length * 2 + e.data.length,
+    22,
+  );
+  const out = new Uint8Array(size),
+    view = new DataView(out.buffer);
+  let pos = 0;
+  const u16 = (v) => {
+    view.setUint16(pos, v, true);
+    pos += 2;
+  };
+  const u32 = (v) => {
+    view.setUint32(pos, v, true);
+    pos += 4;
+  };
+  const bytes = (b) => {
+    out.set(b, pos);
+    pos += b.length;
+  };
+  // 로컬 헤더와 중앙 디렉터리가 함께 쓰는 26바이트: 버전, 플래그(UTF-8 이름), 저장 방식 0, 시각·날짜, CRC, 크기 2번, 이름 길이, 추가 필드 0
+  const common = (e) => {
+    u16(20);
+    u16(0x0800);
+    u16(0);
+    u16(0);
+    u16(0x21);
+    u32(e.crc);
+    u32(e.data.length);
+    u32(e.data.length);
+    u16(e.path.length);
+    u16(0);
+  };
+  const offsets = entries.map((e) => {
+    const at = pos;
+    u32(0x04034b50);
+    common(e);
+    bytes(e.path);
+    bytes(e.data);
+    return at;
+  });
+  const directory = pos;
+  entries.forEach((e, i) => {
+    u32(0x02014b50);
+    u16(20);
+    common(e);
+    u16(0); // 주석 길이
+    u16(0); // 디스크 번호
+    u16(0); // 내부 속성
+    u32(0); // 외부 속성
+    u32(offsets[i]);
+    bytes(e.path);
+  });
+  const directorySize = pos - directory;
+  u32(0x06054b50);
+  u16(0);
+  u16(0);
+  u16(entries.length);
+  u16(entries.length);
+  u32(directorySize);
+  u32(directory);
+  u16(0);
+  return out;
+}
+export const ledgerXlsxName = (trip, today) =>
+  `여행WON해_가계부_${(trip.city || "여행").replace(/[\\/:*?"<>|\s]+/g, "_")}_${today}.xlsx`;
