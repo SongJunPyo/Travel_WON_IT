@@ -26,7 +26,10 @@ import { colors, Icon } from "./src/components/ui";
 import {
   createInitialState,
   fingerprint,
+  recommendProfile,
+  summarize,
   tripReady,
+  tripWithReceipt,
   validateReceipt,
   withoutDefaults,
 } from "./src/domain.mjs";
@@ -90,7 +93,17 @@ function TravelApp() {
             throw new Error("저장 형식 오류");
           parsed.receipts.forEach(validateReceipt);
           // 예전 버전이 넣어 둔 기본 시연 영수증과 기본 여행(파리·도쿄)은 불러오지 않습니다.
-          if (active) setState(withoutDefaults(parsed));
+          const cleaned = withoutDefaults(parsed);
+          // 여행이 비어 있어도 직접 등록한 영수증이 있으면 그 영수증으로 여행을 채웁니다.
+          if (active)
+            setState(
+              tripReady(cleaned.trip)
+                ? cleaned
+                : {
+                    ...cleaned,
+                    trip: cleaned.receipts.reduce(tripWithReceipt, cleaned.trip),
+                  },
+            );
         }
       } catch {
         if (active) {
@@ -121,8 +134,9 @@ function TravelApp() {
   async function refresh() {
     if (!token.current || storageFailed) return;
     // 여행(도시·국가·기간)을 정하기 전에는 서버가 받지 않으므로 기기에만 저장합니다.
+    // 첫 영수증을 저장하면 여행이 채워집니다.
     if (!tripReady(state.trip)) {
-      setSyncMessage("여행을 설정하면 가계부를 서버에도 저장해요.");
+      setSyncMessage("첫 영수증을 저장하면 가계부를 서버에도 저장해요.");
       return;
     }
     // 가계부 전체를 순서대로 서버 DB에 저장해 삭제·수정과 재시도를 함께 처리합니다.
@@ -171,13 +185,19 @@ function TravelApp() {
       )
     )
       throw new Error("같은 매장·구매일·금액의 영수증이 이미 있어요.");
+    const filled = !receipt.demo && !tripReady(state.trip);
     setState((prev) => ({
       ...prev,
+      trip: tripWithReceipt(prev.trip, receipt),
       receipts: [...prev.receipts.filter((r) => r.id !== receipt.id), receipt],
     }));
     setEditor(false);
     setEditing(null);
-    setNotice("여행의 기록을 저장했어요.");
+    setNotice(
+      filled
+        ? "영수증으로 여행 정보를 채웠어요. 여행 설정에서 고칠 수 있어요."
+        : "여행의 기록을 저장했어요.",
+    );
   }
   function navigate(next: string) {
     if (next === "compare") setVisitedCompare(true);

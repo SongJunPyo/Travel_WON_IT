@@ -71,6 +71,8 @@ export type Insight = {
   tip: string | null;
   facts: string[];
   basis: string | null;
+  // 비교 기준 여행자들의 카테고리별 평균 비중(%). 5명 미만이면 null
+  peerShares?: Record<string, number> | null;
   sampleData: boolean;
   ai: boolean;
 };

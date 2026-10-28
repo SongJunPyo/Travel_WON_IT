@@ -69,7 +69,7 @@ public class InsightService {
         long total = spending.values().stream().mapToLong(Long::longValue).sum();
         if (total == 0)
             return new Insight("첫 영수증을 기록해 보세요", "영수증을 기록하면 예산을 쓰는 속도와 카테고리별 소비를 분석해 드려요.",
-                    null, List.of(), null, false, false);
+                    null, List.of(), null, false, false, null);
         LocalDate today = LocalDate.now(ZONE);
         List<PeerTrip> peers = peers(trip, today, self(authorization));
         Facts facts = facts(trip, spending, total, today, peers);
@@ -153,6 +153,14 @@ public class InsightService {
             if (peer != null && Math.abs(mine - peer) >= 3
                     && (biggestGap == null || Math.abs(mine - peer) > Math.abs((Long) biggestGap.get("diffPp")))) biggestGap = c;
         }
+        // 가계부 평균 비교 표용: 6개 카테고리 모두의 비교 기준 평균 비중
+        Map<String, Long> peerShares = null;
+        if (compare) {
+            peerShares = new LinkedHashMap<>();
+            for (String name : CATEGORIES)
+                peerShares.put(name, Math.round(peers.stream()
+                        .mapToDouble(p -> p.spending().getOrDefault(name, 0.0) * 100 / p.total()).average().orElse(0)));
+        }
         categories.sort(Comparator.comparingLong((Map<String, Object> c) -> (Long) c.get("minePct")).reversed());
         Map<String, Object> top = categories.get(0);
         Long peerDaily = compare ? Math.round(median(peers.stream().map(p -> p.total() / p.days()).toList())) : null;
@@ -213,7 +221,8 @@ public class InsightService {
         if (daily != null) chips.add("하루 평균 " + won(daily) + (peerDaily != null ? " · 여행자 중앙값 " + won(peerDaily) : ""));
         if (projected != null && remaining > 0) chips.add("이 속도면 총 " + won(projected));
         boolean sample = compare && peers.stream().anyMatch(PeerTrip::sample);
-        return new Facts(facts, new Insight(headline, String.join(" ", sentences), tip, List.copyOf(chips), group, sample, false));
+        return new Facts(facts, new Insight(headline, String.join(" ", sentences), tip, List.copyOf(chips), group, sample, false,
+                peerShares == null ? null : Map.copyOf(peerShares)));
     }
 
     // AI 문장은 검사한 뒤에만 씁니다. 같은 숫자(facts)면 10분 동안 다시 쓰고, 실패는 1분 동안 기억해 반복 호출을 막습니다.
@@ -231,7 +240,8 @@ public class InsightService {
             }
         }
         Insight fallback = facts.fallback();
-        return advice.map(a -> new Insight(a.headline(), a.body(), a.tip(), fallback.facts(), fallback.basis(), fallback.sampleData(), true))
+        return advice.map(a -> new Insight(a.headline(), a.body(), a.tip(), fallback.facts(), fallback.basis(), fallback.sampleData(), true,
+                fallback.peerShares()))
                 .orElse(fallback);
     }
 

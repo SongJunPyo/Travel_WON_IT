@@ -188,6 +188,10 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.records[1].distance").isNumber());
         prices("&category=음식&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
         prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
+        // 거리순: 조회 위치(신주쿠역)에서 가까운 매장 A가 먼저입니다.
+        prices("&category=음식&sort=거리순").andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                .andExpect(jsonPath("$.records[1].store").value("테스트 매장 B"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
     }
     @Test void 추천순은_가격_인기_최근성_거리를_합친_점수로_정렬하고_이유를_붙인다() throws Exception {
@@ -285,10 +289,14 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원 · 여행자 중앙값 100,000원"))
                 .andExpect(jsonPath("$.facts[2]").value("이 속도면 총 980,000원"))
                 .andExpect(jsonPath("$.basis").value("여행을 마친 도쿄 여행자 5명"))
-                .andExpect(jsonPath("$.sampleData").value(false));
+                .andExpect(jsonPath("$.sampleData").value(false))
+                // 가계부 평균 비교 표에 쓰는 카테고리별 여행자 평균 비중(6개 모두)
+                .andExpect(jsonPath("$.peerShares['음식']").value(40))
+                .andExpect(jsonPath("$.peerShares.length()").value(6));
         // 요청한 기기 자신은 비교 기준에서 빠져 4명이 되고, 5명 미만이면 다른 여행자와 비교하지 않습니다.
         insight(peerToken(1), 450_000, 250_000).andExpect(status().isOk())
                 .andExpect(jsonPath("$.basis").isEmpty())
+                .andExpect(jsonPath("$.peerShares").isEmpty())
                 .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중이 64%로 가장 커요."))
                 .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원"));
         // 지출이 없으면 안내만 합니다.
@@ -356,7 +364,7 @@ class TravelApiTest {
     @Test void 잘못된_조회_조건은_거부한다() throws Exception {
         mvc.perform(get("/prices")).andExpect(status().isBadRequest());
         prices("&category=카페").andExpect(status().isBadRequest());
-        prices("&sort=거리순").andExpect(status().isBadRequest());
+        prices("&sort=멀리순").andExpect(status().isBadRequest());
         prices("&radius=50000").andExpect(status().isBadRequest());
         prices("&q=--").andExpect(status().isBadRequest());
         mvc.perform(get("/prices?currency=JPY&latitude=abc&longitude=" + LNG)).andExpect(status().isBadRequest());
