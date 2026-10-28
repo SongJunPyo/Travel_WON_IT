@@ -5,6 +5,7 @@ import {
   createInitialState,
   EMPTY_TRIP,
   tripReady,
+  tripWithReceipt,
   withoutDefaults,
   parseMoney,
   rateUnits,
@@ -322,4 +323,256 @@ test("저장된 가계부에서 예전 기본 영수증과 바꾸지 않은 기�
   const edited = { ...parisTrip, budget: 600000 };
   assert.equal(withoutDefaults({ ...saved, trip: edited }).trip, edited);
   assert.equal(saved.receipts.length, 5);
+});
+test("여행을 정하지 않았으면 첫 실제 영수증의 통화·구매일·환율로 여행을 채운다", () => {
+  const first = tripWithReceipt(
+    { ...EMPTY_TRIP },
+    receipt({ currency: "JPY", date: "2026-10-27", rate: 9.24 }),
+  );
+  assert.deepEqual(first, {
+    ...EMPTY_TRIP,
+    city: "일본",
+    country: "일본",
+    start: "2026-10-27",
+    end: "2026-10-27",
+    currency: "JPY",
+    rate: 9.24,
+  });
+  assert.equal(tripReady(first), true);
+  // 유로는 쓰는 나라가 여럿이라 유럽으로 둡니다.
+  assert.equal(
+    tripWithReceipt({ ...EMPTY_TRIP }, receipt({ currency: "EUR", rate: 1600 }))
+      .city,
+    "유럽",
+  );
+  // 사용자가 먼저 적은 도시는 그대로 둡니다.
+  assert.equal(
+    tripWithReceipt(
+      { ...EMPTY_TRIP, city: "오사카" },
+      receipt({ currency: "JPY" }),
+    ).city,
+    "오사카",
+  );
+  // 시연 영수증은 여행을 바꾸지 않습니다.
+  const empty = { ...EMPTY_TRIP };
+  assert.equal(tripWithReceipt(empty, receipt({ demo: true })), empty);
+});
+test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히고 줄이지 않는다", () => {
+  const trip = {
+    city: "도쿄",
+    country: "일본",
+    start: "2026-10-24",
+    end: "2026-10-30",
+    budget: 600000,
+    currency: "JPY",
+    rate: 9.24,
+  };
+  assert.equal(tripWithReceipt(trip, receipt({ date: "2026-10-27" })), trip);
+  assert.deepEqual(
+    tripWithReceipt(trip, receipt({ date: "2026-11-01", currency: "USD" })),
+    {
+      ...trip,
+      end: "2026-11-01",
+    },
+  );
+  assert.deepEqual(tripWithReceipt(trip, receipt({ date: "2026-10-22" })), {
+    ...trip,
+    start: "2026-10-22",
+  });
+  // 여러 영수증을 차례로 넣으면 가장 이른 날부터 가장 늦은 날까지가 됩니다.
+  const filled = [
+    receipt({ date: "2026-10-26", currency: "THB", rate: 40 }),
+    receipt({ date: "2026-10-24" }),
+    receipt({ date: "2026-10-29" }),
+  ].reduce(tripWithReceipt, { ...EMPTY_TRIP });
+  assert.equal(filled.city, "태국");
+  assert.equal(filled.start, "2026-10-24");
+  assert.equal(filled.end, "2026-10-29");
+});
+test("다른 여행자 비교는 일차별 누적 지출(0일차 = 출발 전)로 막대 값을 만든다", async () => {
+  const { myCumulative, cumulativeBars, cumulativeDayLabel, dayIndex } =
+    await import("../src/domain.mjs");
+  const receipt = (id, totalMinor, date) => ({
+    id,
+    store: id,
+    date,
+    category: "음식",
+    currency: "KRW",
+    rate: 1,
+    totalMinor,
+    items: [{ name: id, quantity: 1, unitMinor: totalMinor }],
+    demo: false,
+  });
+  const state = {
+    trip: {
+      city: "도쿄",
+      country: "일본",
+      start: "2026-10-24",
+      end: "2026-10-30",
+      budget: 1000000,
+      currency: "KRW",
+      rate: 1,
+    },
+    receipts: [
+      receipt("호텔 예약", 140000, "2026-10-01"),
+      receipt("라멘", 20000, "2026-10-24"),
+      receipt("쇼핑", 31000, "2026-10-25"),
+    ],
+  };
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-01"), 0);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-24"), 1);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-11-05"), 7);
+  // 오늘 10/25 = 2일차: [0일차 140,000, 1일차 160,000, 2일차 191,000]
+  assert.deepEqual(myCumulative(state, "2026-10-25"), [140000, 160000, 191000]);
+  // 여행 전이면 0일차만
+  assert.deepEqual(
+    myCumulative({ ...state, receipts: [state.receipts[0]] }, "2026-10-10"),
+    [140000],
+  );
+  assert.equal(cumulativeDayLabel(state, 0, "2026-10-25"), "0일차 · 출발 전");
+  assert.equal(
+    cumulativeDayLabel(state, 2, "2026-10-25"),
+    "2일차 · 10.25 · 오늘",
+  );
+  const mine = [140000, 160000, 191000];
+  assert.deepEqual(cumulativeBars(mine, null, 2), {
+    me: 191000,
+    average: null,
+    diff: 0,
+    percent: 0,
+    tone: "none",
+  });
+  const peers = [120000, 150000, 165000];
+  assert.equal(cumulativeBars(mine, peers, 2).diff, 26000);
+  assert.equal(cumulativeBars(mine, peers, 2).percent, 16);
+  assert.equal(cumulativeBars(mine, peers, 2).tone, "more");
+  assert.equal(cumulativeBars(mine, [120000, 158000], 1).tone, "same");
+  // 그 일차까지 여행한 비교 여행자가 부족하면 평균 없음
+  assert.equal(cumulativeBars(mine, [120000, 150000], 2).average, null);
+});
+test("가계부 엑셀은 품목마다 한 줄, 날짜·숫자 셀과 XML 특수문자 처리, 원화 환산을 넣는다", async () => {
+  const { ledgerXlsx, ledgerXlsxName } = await import("../src/domain.mjs");
+  const { crc32 } = await import("node:zlib");
+  const bytes = ledgerXlsx({
+    trip: { city: "도쿄" },
+    receipts: [
+      {
+        id: "b",
+        date: "2026-10-28",
+        store: "Corner Deli",
+        storeKo: "",
+        address: "",
+        category: "음식",
+        currency: "USD",
+        rate: 1380.5,
+        totalMinor: 1250,
+        demo: true,
+        items: [{ name: "Bagel", nameKo: "베이글", quantity: 1, unitMinor: 1250 }],
+      },
+      {
+        id: "a",
+        date: "2026-10-27",
+        store: "ローソン",
+        storeKo: "로손",
+        address: "新宿 3-1",
+        category: "음식",
+        currency: "JPY",
+        rate: 9.3277,
+        totalMinor: 380,
+        demo: false,
+        items: [
+          {
+            name: 'コカ・コーラ & "500ml" <冷>',
+            nameKo: "코카콜라 500ml",
+            quantity: 2,
+            unitMinor: 190,
+          },
+        ],
+      },
+    ],
+  });
+  // zip 읽기: 끝의 중앙 디렉터리에서 파일 목록을 읽고, 파일마다 CRC를 zlib으로 다시 계산해 맞춰 봅니다.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const text = (from, to) => new TextDecoder().decode(bytes.subarray(from, to));
+  const end = bytes.length - 22;
+  assert.equal(view.getUint32(end, true), 0x06054b50);
+  const files = {};
+  let pos = view.getUint32(end + 16, true);
+  for (let n = 0; n < view.getUint16(end + 10, true); n++) {
+    assert.equal(view.getUint32(pos, true), 0x02014b50);
+    const crc = view.getUint32(pos + 16, true),
+      size = view.getUint32(pos + 24, true),
+      nameLength = view.getUint16(pos + 28, true),
+      offset = view.getUint32(pos + 42, true);
+    const name = text(pos + 46, pos + 46 + nameLength);
+    assert.equal(view.getUint32(offset, true), 0x04034b50);
+    const start =
+      offset + 30 + view.getUint16(offset + 26, true) + view.getUint16(offset + 28, true);
+    assert.equal(crc32(bytes.subarray(start, start + size)), crc, name);
+    files[name] = text(start, start + size);
+    pos += 46 + nameLength;
+  }
+  assert.deepEqual(Object.keys(files).sort(), [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "xl/_rels/workbook.xml.rels",
+    "xl/styles.xml",
+    "xl/workbook.xml",
+    "xl/worksheets/sheet1.xml",
+  ]);
+  // 셀 → { 서식 번호, 값 }. 숫자 셀은 숫자, 글자 셀은 XML에 쓰인 그대로입니다.
+  const cells = Object.fromEntries(
+    [
+      ...files["xl/worksheets/sheet1.xml"].matchAll(
+        /<c r="([A-Z]+\d+)"(?: t="inlineStr")?(?: s="(\d+)")?>(?:<v>([^<]*)<\/v>|<is><t xml:space="preserve">([^<]*)<\/t><\/is>)<\/c>/g,
+      ),
+    ].map(([, ref, s, v, t]) => [
+      ref,
+      { style: Number(s ?? 0), value: v === undefined ? t : Number(v) },
+    ]),
+  );
+  const row = (r) =>
+    "ABCDEFGHIJKLMNOP".split("").map((c) => cells[c + r] ?? null);
+  assert.deepEqual(cells.A1, { style: 1, value: "구매일" });
+  assert.deepEqual(cells.P1, { style: 1, value: "시연" });
+  // 구매일 순: 엔화 영수증이 먼저. 구매일은 엑셀 날짜 번호(2026-10-27 = 46322), 엔화 금액은 정수 서식
+  assert.deepEqual(row(2), [
+    { style: 4, value: 46322 },
+    { style: 0, value: "ローソン" },
+    { style: 0, value: "로손" },
+    { style: 0, value: "新宿 3-1" },
+    { style: 0, value: "음식" },
+    { style: 0, value: 'コカ・コーラ &amp; "500ml" &lt;冷&gt;' },
+    { style: 0, value: "코카콜라 500ml" },
+    { style: 0, value: 2 },
+    { style: 2, value: 190 },
+    { style: 2, value: 380 },
+    { style: 0, value: "JPY" },
+    { style: 0, value: 9.3277 },
+    { style: 2, value: 3545 },
+    { style: 2, value: 380 },
+    { style: 2, value: 3545 },
+    null,
+  ]);
+  // 달러는 소수 둘째 자리 서식, 빈 매장명(한국어)·주소는 셀을 만들지 않고, 시연 영수증은 Y
+  assert.deepEqual(row(3).slice(1, 4), [{ style: 0, value: "Corner Deli" }, null, null]);
+  assert.deepEqual(row(3).slice(8, 16), [
+    { style: 3, value: 12.5 },
+    { style: 3, value: 12.5 },
+    { style: 0, value: "USD" },
+    { style: 0, value: 1380.5 },
+    { style: 2, value: 17256 },
+    { style: 3, value: 12.5 },
+    { style: 2, value: 17256 },
+    { style: 0, value: "Y" },
+  ]);
+  assert.equal(cells.A4, undefined);
+  assert.equal(
+    ledgerXlsxName({ city: "뉴 욕" }, "2026-10-28"),
+    "여행WON해_가계부_뉴_욕_2026-10-28.xlsx",
+  );
+});
+test("카테고리 둘러보기 거리순 정렬을 쓸 수 있다", async () => {
+  const { BROWSE_SORTS } = await import("../src/domain.mjs");
+  assert.equal(BROWSE_SORTS.find((s) => s.name === "거리순").ready, true);
 });

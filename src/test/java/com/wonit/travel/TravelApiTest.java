@@ -188,6 +188,10 @@ class TravelApiTest {
                 .andExpect(jsonPath("$.records[1].distance").isNumber());
         prices("&category=음식&sort=구매수").andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"));
         prices("&category=음식&sort=최신순").andExpect(jsonPath("$.records[0].date").value("2026-10-27"));
+        // 거리순: 조회 위치(신주쿠역)에서 가까운 매장 A가 먼저입니다.
+        prices("&category=음식&sort=거리순").andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].store").value("테스트 매장 A"))
+                .andExpect(jsonPath("$.records[1].store").value("테스트 매장 B"));
         prices("&category=숙박").andExpect(jsonPath("$.records.length()").value(0));
     }
     @Test void 추천순은_가격_인기_최근성_거리를_합친_점수로_정렬하고_이유를_붙인다() throws Exception {
@@ -258,22 +262,27 @@ class TravelApiTest {
         prices("&q=doritos&sort=구매수").andExpect(status().isOk());
         verify(ranker, times(2)).rank(any(), any());
     }
-    // 소비 인사이트: 여행을 마친 도쿄 여행자 5명(각 5일, 예산 500,000원, 음식 200,000원 + 숙박 300,000원)을 저장합니다.
+    // 소비 인사이트: 최근 1달 안에 여행을 마친 일본 여행자 5명(각 5일, 예산 500,000원, 음식 200,000원 + 숙박 300,000원)을 저장합니다.
+    // 도시가 달라도(도쿄·오사카) 같은 나라면 비교 기준에 들어가고, 1달보다 전에 끝난 여행과 다른 나라 여행은 빠집니다.
     private final LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
     private String peerToken(int i) { return "Bearer " + ("peer" + i).repeat(12); }
     private void savePeers() throws Exception {
-        for (int i = 1; i <= 5; i++) {
-            var food = receipt("피어 식당 " + i, 35.69, 139.70, today.minusDays(18).toString(), 20000, true);
-            food.put("rate", 10);
-            var hotel = receipt("피어 호텔 " + i, 35.69, 139.70, today.minusDays(20).toString(), 30000, true);
-            hotel.put("rate", 10); hotel.put("category", "숙박");
-            var trip = trip();
-            trip.put("start", today.minusDays(20).toString()); trip.put("end", today.minusDays(16).toString());
-            trip.put("budget", 500_000); trip.put("rate", 10);
-            mvc.perform(put("/ledger").header("Authorization", peerToken(i)).contentType("application/json")
-                    .content(mapper.writeValueAsString(Map.of("version", 1, "trip", trip, "receipts", List.of(food, hotel)))))
-                    .andExpect(status().isOk());
-        }
+        for (int i = 1; i <= 5; i++) savePeer(i, i % 2 == 0 ? "오사카" : "도쿄", "일본", today.minusDays(20));
+        savePeer(6, "도쿄", "일본", today.minusMonths(1).minusDays(5));
+        savePeer(7, "타이베이", "대만", today.minusDays(20));
+    }
+    private void savePeer(int i, String city, String country, LocalDate start) throws Exception {
+        var food = receipt("피어 식당 " + i, 35.69, 139.70, start.plusDays(2).toString(), 20000, true);
+        food.put("rate", 10);
+        var hotel = receipt("피어 호텔 " + i, 35.69, 139.70, start.toString(), 30000, true);
+        hotel.put("rate", 10); hotel.put("category", "숙박");
+        var trip = trip();
+        trip.put("city", city); trip.put("country", country);
+        trip.put("start", start.toString()); trip.put("end", start.plusDays(4).toString());
+        trip.put("budget", 500_000); trip.put("rate", 10);
+        mvc.perform(put("/ledger").header("Authorization", peerToken(i)).contentType("application/json")
+                .content(mapper.writeValueAsString(Map.of("version", 1, "trip", trip, "receipts", List.of(food, hotel)))))
+                .andExpect(status().isOk());
     }
     // 내 여행: 7일 중 5일째(오늘 포함), 예산 1,000,000원, 음식 450,000원 + 숙박 250,000원
     private ResultActions insight(String token, long food, long hotel) throws Exception {
@@ -283,26 +292,41 @@ class TravelApiTest {
         var request = post("/insight").contentType("application/json").content(mapper.writeValueAsString(body));
         return mvc.perform(token == null ? request : request.header("Authorization", token));
     }
-    @Test void 소비_인사이트는_여행을_마친_같은_도시_여행자와_비교한_숫자로_규칙_문장을_만든다() throws Exception {
+    @Test void 소비_인사이트는_최근_1달_안에_여행을_마친_같은_나라_여행자와_비교한_숫자로_규칙_문장을_만든다() throws Exception {
         savePeers();
         insight(null, 450_000, 250_000).andExpect(status().isOk())
                 .andExpect(jsonPath("$.ai").value(false))
                 .andExpect(jsonPath("$.headline").value("예산 안에서 잘 쓰고 있어요"))
-                .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중은 64%로, 여행을 마친 도쿄 여행자 5명 평균보다 24%p 높아요."))
+                .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중은 64%로, 최근 1달 안에 여행을 마친 일본 여행자 5명 평균보다 24%p 높아요."))
                 .andExpect(jsonPath("$.tip").value("남은 2일은 하루 150,000원 안에서 쓰면 예산을 지킬 수 있어요."))
                 .andExpect(jsonPath("$.facts[0]").value("예산 70% 사용 · 여행 71% 경과"))
                 .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원 · 여행자 중앙값 100,000원"))
                 .andExpect(jsonPath("$.facts[2]").value("이 속도면 총 980,000원"))
-                .andExpect(jsonPath("$.basis").value("여행을 마친 도쿄 여행자 5명"))
-                .andExpect(jsonPath("$.sampleData").value(false));
+                .andExpect(jsonPath("$.basis").value("최근 1달 안에 여행을 마친 일본 여행자 5명"))
+                .andExpect(jsonPath("$.sampleData").value(false))
+                // 일차별 평균 누적 지출: 여행자마다 1일차 호텔 300,000원, 3일차 식당 200,000원 (5일 여행)
+                .andExpect(jsonPath("$.peerCumulative.length()").value(6))
+                .andExpect(jsonPath("$.peerCumulative[0]").value(0))
+                .andExpect(jsonPath("$.peerCumulative[1]").value(300000))
+                .andExpect(jsonPath("$.peerCumulative[2]").value(300000))
+                .andExpect(jsonPath("$.peerCumulative[3]").value(500000))
+                .andExpect(jsonPath("$.peerCumulative[5]").value(500000));
         // 요청한 기기 자신은 비교 기준에서 빠져 4명이 되고, 5명 미만이면 다른 여행자와 비교하지 않습니다.
         insight(peerToken(1), 450_000, 250_000).andExpect(status().isOk())
                 .andExpect(jsonPath("$.basis").isEmpty())
+                .andExpect(jsonPath("$.peerCumulative").isEmpty())
                 .andExpect(jsonPath("$.body").value("예산의 70%를 썼고, 여행은 71% 지났어요. 음식 비중이 64%로 가장 커요."))
                 .andExpect(jsonPath("$.facts[1]").value("하루 평균 140,000원"));
         // 지출이 없으면 안내만 합니다.
         insight(null, 0, 0).andExpect(jsonPath("$.headline").value("첫 영수증을 기록해 보세요")).andExpect(jsonPath("$.facts.length()").value(0));
         verify(advisor, never()).advise(any());
+    }
+    @Test void 구매일은_출발_전_0일차_첫날_1일차_종료일_뒤는_마지막_일차다() {
+        var start = java.time.LocalDate.of(2026, 10, 24);
+        assertThat(com.wonit.travel.insight.InsightService.dayIndex(start, 5, start.minusDays(30))).isZero();
+        assertThat(com.wonit.travel.insight.InsightService.dayIndex(start, 5, start)).isEqualTo(1);
+        assertThat(com.wonit.travel.insight.InsightService.dayIndex(start, 5, start.plusDays(2))).isEqualTo(3);
+        assertThat(com.wonit.travel.insight.InsightService.dayIndex(start, 5, start.plusDays(10))).isEqualTo(5);
     }
     @Test void 소비_인사이트_AI_문장은_계산한_숫자만_쓸_때_보여주고_아니면_규칙_문장을_쓴다() throws Exception {
         savePeers();
@@ -314,7 +338,7 @@ class TravelApiTest {
                     .andExpect(jsonPath("$.headline").value("음식에 24%p 더 쓰고 있어요"))
                     .andExpect(jsonPath("$.body").value("예산의 70%를 썼어요. 이 속도면 980,000원이에요."))
                     .andExpect(jsonPath("$.facts[0]").value("예산 70% 사용 · 여행 71% 경과"))
-                    .andExpect(jsonPath("$.basis").value("여행을 마친 도쿄 여행자 5명"));
+                    .andExpect(jsonPath("$.basis").value("최근 1달 안에 여행을 마친 일본 여행자 5명"));
         // 같은 숫자면 캐시를 써서 AI를 한 번만 부릅니다. AI에는 서버가 계산한 숫자만 보냅니다.
         verify(advisor, times(1)).advise(any());
         // 계산하지 않은 숫자(85%)를 쓰면 AI 문장을 버리고 규칙 기반 문장을 씁니다.
@@ -365,7 +389,7 @@ class TravelApiTest {
     @Test void 잘못된_조회_조건은_거부한다() throws Exception {
         mvc.perform(get("/prices")).andExpect(status().isBadRequest());
         prices("&category=카페").andExpect(status().isBadRequest());
-        prices("&sort=거리순").andExpect(status().isBadRequest());
+        prices("&sort=멀리순").andExpect(status().isBadRequest());
         prices("&radius=50000").andExpect(status().isBadRequest());
         prices("&q=--").andExpect(status().isBadRequest());
         mvc.perform(get("/prices?currency=JPY&latitude=abc&longitude=" + LNG)).andExpect(status().isBadRequest());

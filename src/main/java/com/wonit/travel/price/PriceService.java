@@ -24,12 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PriceService {
-    // 거리순은 현재 위치 연동 후 제공합니다. 추천순은 PriceRecommender 점수로 정렬합니다.
+    // 거리순은 요청한 위치(시연은 신주쿠역)에서 가까운 순입니다. 추천순은 PriceRecommender 점수로 정렬합니다.
     private static final String RECOMMENDED = "추천순";
     private static final Map<String, Comparator<PriceRecord>> ORDER = Map.of(
             "가격순", Comparator.comparingLong(PriceRecord::unitMinor).thenComparing(Comparator.comparingInt(PriceRecord::count).reversed()),
             "구매수", Comparator.comparingInt(PriceRecord::count).reversed().thenComparingLong(PriceRecord::unitMinor),
-            "최신순", Comparator.comparing(PriceRecord::date).reversed().thenComparing(Comparator.comparingInt(PriceRecord::count).reversed()));
+            "최신순", Comparator.comparing(PriceRecord::date).reversed().thenComparing(Comparator.comparingInt(PriceRecord::count).reversed()),
+            "거리순", Comparator.comparingLong(PriceRecord::distance).thenComparingLong(PriceRecord::unitMinor));
     private static final Logger log = LoggerFactory.getLogger(PriceService.class);
     // AI에는 점수 상위 10개를 보내고, 그중 가장 추천할 3개만 'AI 추천'으로 맨 위에 둡니다(배지가 흔해 보이지 않게).
     // 같은 조건·같은 후보의 결과는 10분(실패는 1분) 동안 다시 씁니다.
