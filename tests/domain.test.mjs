@@ -450,11 +450,25 @@ test("다른 여행자 비교는 일차별 누적 지출(0일차 = 출발 전)�
   // 그 일차까지 여행한 비교 여행자가 부족하면 평균 없음
   assert.equal(cumulativeBars(mine, [120000, 150000], 2).average, null);
 });
-test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환산을 넣는다", async () => {
-  const { ledgerCsv, ledgerCsvName } = await import("../src/domain.mjs");
-  const csv = ledgerCsv({
+test("가계부 엑셀은 품목마다 한 줄, 날짜·숫자 셀과 XML 특수문자 처리, 원화 환산을 넣는다", async () => {
+  const { ledgerXlsx, ledgerXlsxName } = await import("../src/domain.mjs");
+  const { crc32 } = await import("node:zlib");
+  const bytes = ledgerXlsx({
     trip: { city: "도쿄" },
     receipts: [
+      {
+        id: "b",
+        date: "2026-10-28",
+        store: "Corner Deli",
+        storeKo: "",
+        address: "",
+        category: "음식",
+        currency: "USD",
+        rate: 1380.5,
+        totalMinor: 1250,
+        demo: true,
+        items: [{ name: "Bagel", nameKo: "베이글", quantity: 1, unitMinor: 1250 }],
+      },
       {
         id: "a",
         date: "2026-10-27",
@@ -468,7 +482,7 @@ test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환
         demo: false,
         items: [
           {
-            name: 'コカ・コーラ, "500ml"',
+            name: 'コカ・コーラ & "500ml" <冷>',
             nameKo: "코카콜라 500ml",
             quantity: 2,
             unitMinor: 190,
@@ -477,16 +491,85 @@ test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환
       },
     ],
   });
-  assert.ok(csv.startsWith("﻿구매일,"));
-  const lines = csv.slice(1).split("\r\n");
-  assert.equal(lines.length, 2);
-  assert.equal(
-    lines[1],
-    '2026-10-27,ローソン,로손,新宿 3-1,음식,"コカ・コーラ, ""500ml""",코카콜라 500ml,2,190,380,JPY,9.3277,3545,380,3545,',
+  // zip 읽기: 끝의 중앙 디렉터리에서 파일 목록을 읽고, 파일마다 CRC를 zlib으로 다시 계산해 맞춰 봅니다.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const text = (from, to) => new TextDecoder().decode(bytes.subarray(from, to));
+  const end = bytes.length - 22;
+  assert.equal(view.getUint32(end, true), 0x06054b50);
+  const files = {};
+  let pos = view.getUint32(end + 16, true);
+  for (let n = 0; n < view.getUint16(end + 10, true); n++) {
+    assert.equal(view.getUint32(pos, true), 0x02014b50);
+    const crc = view.getUint32(pos + 16, true),
+      size = view.getUint32(pos + 24, true),
+      nameLength = view.getUint16(pos + 28, true),
+      offset = view.getUint32(pos + 42, true);
+    const name = text(pos + 46, pos + 46 + nameLength);
+    assert.equal(view.getUint32(offset, true), 0x04034b50);
+    const start =
+      offset + 30 + view.getUint16(offset + 26, true) + view.getUint16(offset + 28, true);
+    assert.equal(crc32(bytes.subarray(start, start + size)), crc, name);
+    files[name] = text(start, start + size);
+    pos += 46 + nameLength;
+  }
+  assert.deepEqual(Object.keys(files).sort(), [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "xl/_rels/workbook.xml.rels",
+    "xl/styles.xml",
+    "xl/workbook.xml",
+    "xl/worksheets/sheet1.xml",
+  ]);
+  // 셀 → { 서식 번호, 값 }. 숫자 셀은 숫자, 글자 셀은 XML에 쓰인 그대로입니다.
+  const cells = Object.fromEntries(
+    [
+      ...files["xl/worksheets/sheet1.xml"].matchAll(
+        /<c r="([A-Z]+\d+)"(?: t="inlineStr")?(?: s="(\d+)")?>(?:<v>([^<]*)<\/v>|<is><t xml:space="preserve">([^<]*)<\/t><\/is>)<\/c>/g,
+      ),
+    ].map(([, ref, s, v, t]) => [
+      ref,
+      { style: Number(s ?? 0), value: v === undefined ? t : Number(v) },
+    ]),
   );
+  const row = (r) =>
+    "ABCDEFGHIJKLMNOP".split("").map((c) => cells[c + r] ?? null);
+  assert.deepEqual(cells.A1, { style: 1, value: "구매일" });
+  assert.deepEqual(cells.P1, { style: 1, value: "시연" });
+  // 구매일 순: 엔화 영수증이 먼저. 구매일은 엑셀 날짜 번호(2026-10-27 = 46322), 엔화 금액은 정수 서식
+  assert.deepEqual(row(2), [
+    { style: 4, value: 46322 },
+    { style: 0, value: "ローソン" },
+    { style: 0, value: "로손" },
+    { style: 0, value: "新宿 3-1" },
+    { style: 0, value: "음식" },
+    { style: 0, value: 'コカ・コーラ &amp; "500ml" &lt;冷&gt;' },
+    { style: 0, value: "코카콜라 500ml" },
+    { style: 0, value: 2 },
+    { style: 2, value: 190 },
+    { style: 2, value: 380 },
+    { style: 0, value: "JPY" },
+    { style: 0, value: 9.3277 },
+    { style: 2, value: 3545 },
+    { style: 2, value: 380 },
+    { style: 2, value: 3545 },
+    null,
+  ]);
+  // 달러는 소수 둘째 자리 서식, 빈 매장명(한국어)·주소는 셀을 만들지 않고, 시연 영수증은 Y
+  assert.deepEqual(row(3).slice(1, 4), [{ style: 0, value: "Corner Deli" }, null, null]);
+  assert.deepEqual(row(3).slice(8, 16), [
+    { style: 3, value: 12.5 },
+    { style: 3, value: 12.5 },
+    { style: 0, value: "USD" },
+    { style: 0, value: 1380.5 },
+    { style: 2, value: 17256 },
+    { style: 3, value: 12.5 },
+    { style: 2, value: 17256 },
+    { style: 0, value: "Y" },
+  ]);
+  assert.equal(cells.A4, undefined);
   assert.equal(
-    ledgerCsvName({ city: "뉴 욕" }, "2026-10-28"),
-    "여행WON해_가계부_뉴_욕_2026-10-28.csv",
+    ledgerXlsxName({ city: "뉴 욕" }, "2026-10-28"),
+    "여행WON해_가계부_뉴_욕_2026-10-28.xlsx",
   );
 });
 test("카테고리 둘러보기 거리순 정렬을 쓸 수 있다", async () => {

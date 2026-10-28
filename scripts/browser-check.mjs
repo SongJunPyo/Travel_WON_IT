@@ -569,18 +569,19 @@ try {
     bodyHas("일본 여행") + "&&" + bodyHas("영수증으로 여행 정보를 채웠어요"),
     "자동으로 정한 여행 표시와 안내",
   );
-  // 가계부 CSV 내보내기: 웹에서는 파일로 내려받습니다.
+  // 가계부 엑셀 내보내기: 웹에서는 .xlsx 파일로 내려받습니다(압축하지 않은 zip이라 품목 이름이 그대로 보입니다).
   await evaluate(
-    `window.__csv=null;const _c=URL.createObjectURL;URL.createObjectURL=(b)=>{window.__csv=b;return _c.call(URL,b)}`,
+    `window.__xlsx=null;const _c=URL.createObjectURL;URL.createObjectURL=(b)=>{window.__xlsx=b;return _c.call(URL,b)}`,
   );
-  await click("export-csv");
+  await click("export-xlsx");
   await check(
-    bodyHas("파일로 내보냈어요") + `&&window.__csv&&window.__csv.size>0`,
-    "가계부 CSV 내보내기",
+    bodyHas("xlsx 파일로 내보냈어요") +
+      `&&window.__xlsx&&window.__xlsx.size>0&&window.__xlsx.type==='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'`,
+    "가계부 엑셀 내보내기",
   );
   await check(
-    `window.__csv.arrayBuffer().then(b=>{const u=new Uint8Array(b);const t=new TextDecoder().decode(u);return u[0]===0xEF&&u[1]===0xBB&&u[2]===0xBF&&t.startsWith('구매일,')&&t.includes('녹차 500ml')})`,
-    "CSV에 품목 줄과 한글 BOM 포함",
+    `window.__xlsx.arrayBuffer().then(b=>{const u=new Uint8Array(b);const t=new TextDecoder().decode(u);return u[0]===0x50&&u[1]===0x4B&&u[2]===3&&u[3]===4&&t.includes('xl/worksheets/sheet1.xml')&&t.includes('구매일')&&t.includes('녹차 500ml')})`,
+    "엑셀 파일(zip)에 시트와 품목 줄 포함",
   );
   const autoTripId = await evaluate(`${saved}.receipts[0].id`);
   await click("receipt-" + autoTripId);
