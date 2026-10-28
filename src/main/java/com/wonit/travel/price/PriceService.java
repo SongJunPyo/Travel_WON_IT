@@ -31,8 +31,9 @@ public class PriceService {
             "구매수", Comparator.comparingInt(PriceRecord::count).reversed().thenComparingLong(PriceRecord::unitMinor),
             "최신순", Comparator.comparing(PriceRecord::date).reversed().thenComparing(Comparator.comparingInt(PriceRecord::count).reversed()));
     private static final Logger log = LoggerFactory.getLogger(PriceService.class);
-    // AI에는 점수 상위 10개만 보냅니다. 같은 조건·같은 후보의 결과는 10분(실패는 1분) 동안 다시 씁니다.
-    private static final int AI_CANDIDATES = 10;
+    // AI에는 점수 상위 10개를 보내고, 그중 가장 추천할 3개만 'AI 추천'으로 맨 위에 둡니다(배지가 흔해 보이지 않게).
+    // 같은 조건·같은 후보의 결과는 10분(실패는 1분) 동안 다시 씁니다.
+    private static final int AI_CANDIDATES = 10, AI_PICKS = 3;
     private static final Duration AI_CACHE = Duration.ofMinutes(10), AI_FAILURE_CACHE = Duration.ofMinutes(1);
     private final TtlCache<List<PriceRanker.Pick>> aiCache = new TtlCache<>(200);
     private final ReceiptItemRepository items;
@@ -83,8 +84,9 @@ public class PriceService {
         return grouped.stream().sorted(ORDER.get(order).thenComparingLong(PriceRecord::distance).thenComparing(PriceRecord::id))
                 .limit(200).toList();
     }
-    // 추천순 2단계: 점수 상위 후보를 AI가 다시 고르고 이유를 씁니다. 키가 없거나 실패하면 점수 순서와 규칙 이유를 그대로 씁니다.
-    // AI 답은 믿지 않고 검사합니다: 후보에 없는 id·중복 id는 버리고, 빠진 후보는 점수 순서로 뒤에 붙이며, 이유는 40자로 자릅니다.
+    // 추천순 2단계: 점수 상위 후보 중 AI가 3개를 골라 이유를 씁니다. 키가 없거나 실패하면 점수 순서와 규칙 이유를 그대로 씁니다.
+    // AI 답은 믿지 않고 검사합니다: 후보에 없는 id·중복 id는 버리고, 3개를 넘으면 나머지를 버리며, 이유는 40자로 자릅니다.
+    // AI가 고르지 않은 결과는 점수 순서와 규칙 이유로 그 뒤에 붙습니다.
     private List<PriceRecord> aiRanked(List<PriceRecommender.Scored> scored, PriceRecommender.Profile profile, String context) {
         List<PriceRecord> byScore = scored.stream().map(s -> s.record().withReason(s.reason(), false)).toList();
         if (!ranker.configured() || scored.size() < 2) return byScore;
@@ -107,6 +109,7 @@ public class PriceService {
         List<PriceRecord> result = new ArrayList<>();
         Set<String> used = new HashSet<>();
         for (PriceRanker.Pick pick : picks) {
+            if (result.size() == AI_PICKS) break;
             PriceRecord r = candidates.get(pick.id());
             if (r == null || !used.add(pick.id())) continue;
             String reason = pick.reason() == null ? "" : pick.reason().replaceAll("\\p{Cntrl}", " ").strip();

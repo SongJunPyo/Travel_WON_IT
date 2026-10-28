@@ -211,32 +211,41 @@ class TravelApiTest {
         prices("&q=doritos&budgetLeft=500").andExpect(status().isBadRequest());
         prices("&q=doritos&favorite=카페").andExpect(status().isBadRequest());
     }
-    @Test void 추천순_AI_재정렬은_후보_안에서만_순서를_바꾸고_실패하면_점수_순서를_쓴다() throws Exception {
+    @Test void 추천순_AI는_후보_안에서_3개만_골라_맨_위에_두고_실패하면_점수_순서를_쓴다() throws Exception {
+        // D는 다른 상품(쿨랜치)이고 멀리 있어 점수가 가장 낮습니다.
+        var ranch = receipt("테스트 매장 D", 35.7150, 139.7006, "2026-10-20", 400, true);
+        ranch.put("items", List.of(Map.of("name", "DORITOS COOL RANCH 150G", "quantity", 1, "unitMinor", 400)));
         save(tokenB, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-26", 300, true),
                 receipt("테스트 매장 B", 35.6930, 139.7040, "2026-10-25", 280, true),
-                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true))).andExpect(status().isOk());
+                receipt("테스트 매장 C", 35.7100, 139.7006, "2026-10-27", 250, true), ranch)).andExpect(status().isOk());
         save(tokenA, List.of(receipt("테스트 매장 A", 35.6905, 139.7010, "2026-10-27", 330, true))).andExpect(status().isOk());
         var byScore = mvc.perform(get("/prices?currency=JPY&latitude=" + LAT + "&longitude=" + LNG + "&q=doritos")).andReturn().getResponse().getContentAsString();
         var ids = mapper.readTree(byScore).get("records");
-        String a = null, b = null, c = null;
+        String a = null, b = null, c = null, d = null;
         for (var r : ids) switch (r.get("store").asString()) {
             case "테스트 매장 A" -> a = r.get("id").asString();
             case "테스트 매장 B" -> b = r.get("id").asString();
-            default -> c = r.get("id").asString();
+            case "테스트 매장 C" -> c = r.get("id").asString();
+            default -> d = r.get("id").asString();
         }
         when(ranker.configured()).thenReturn(true);
-        // C를 맨 앞으로, 없는 id와 중복 id, 빈 이유, 너무 긴 이유를 섞어 돌려줍니다. B는 빠뜨립니다.
+        // C를 맨 앞으로, 없는 id와 중복 id, 너무 긴 이유를 섞고, 3개를 넘겨(D 다음 B) 돌려줍니다.
         when(ranker.rank(any(), any())).thenReturn(List.of(new PriceRanker.Pick(c, "주변보다 11% 저렴해요\n"),
-                new PriceRanker.Pick("없는-id", "무시"), new PriceRanker.Pick(c, "중복"), new PriceRanker.Pick(a, "가".repeat(60))));
+                new PriceRanker.Pick("없는-id", "무시"), new PriceRanker.Pick(c, "중복"), new PriceRanker.Pick(a, "가".repeat(60)),
+                new PriceRanker.Pick(d, "다른 맛도 있어요"), new PriceRanker.Pick(b, "네 번째는 버림")));
+        // 'AI 추천'은 유효한 앞의 3개(C, A, D)뿐이고, 나머지 B는 점수 순서·규칙 이유로 뒤에 붙습니다.
         for (int i = 0; i < 2; i++)
-            prices("&q=doritos&sort=추천순").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(3))
+            prices("&q=doritos&sort=추천순").andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(4))
                     .andExpect(jsonPath("$.records[0].store").value("테스트 매장 C"))
                     .andExpect(jsonPath("$.records[0].reason").value("주변보다 11% 저렴해요"))
                     .andExpect(jsonPath("$.records[0].ai").value(true))
                     .andExpect(jsonPath("$.records[1].store").value("테스트 매장 A"))
                     .andExpect(jsonPath("$.records[1].reason").value("가".repeat(40)))
-                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 B"))
-                    .andExpect(jsonPath("$.records[2].ai").value(false));
+                    .andExpect(jsonPath("$.records[2].store").value("테스트 매장 D"))
+                    .andExpect(jsonPath("$.records[2].ai").value(true))
+                    .andExpect(jsonPath("$.records[3].store").value("테스트 매장 B"))
+                    .andExpect(jsonPath("$.records[3].reason").value("도보 약 7분"))
+                    .andExpect(jsonPath("$.records[3].ai").value(false));
         // 같은 조건·같은 후보는 캐시를 써서 AI를 한 번만 부릅니다.
         verify(ranker, times(1)).rank(any(), any());
         // AI가 실패하면(시간 초과 등) 1단계 점수 순서와 규칙 이유를 그대로 씁니다.

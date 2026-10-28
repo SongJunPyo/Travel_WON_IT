@@ -11,7 +11,7 @@ import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 
 /**
- * Spring AI ChatClient로 Claude에게 추천순 상위 후보를 다시 고르게 하고 한 줄 이유를 받습니다.
+ * Spring AI ChatClient로 Claude에게 추천순 상위 후보 중 가장 추천할 3개를 고르게 하고 한 줄 이유를 받습니다.
  * 검색 화면을 오래 붙잡지 않도록 8초 안에 답이 없으면 포기하고, 동시에 2건까지만 부릅니다(StructuredClaude).
  */
 public class ClaudePriceRanker implements PriceRanker {
@@ -29,9 +29,10 @@ public class ClaudePriceRanker implements PriceRanker {
             - distanceMeters: straight-line distance from the traveller. score: rule-based score (higher is better).
             Profile fields: budgetLeftPct (remaining trip budget in %, negative = over budget, null = unknown) and
             favoriteCategory (the category the traveller spends most on, null = unknown).
-            Task: order the candidates from most to least recommended for this traveller and write one short reason
-            for each in natural Korean (at most 25 characters), e.g. "최저가보다 ¥10 비싸지만 가장 가까움",
-            "여행자 구매 3회, 주변보다 6% 저렴".
+            Task: choose the 3 candidates you most recommend for this traveller (fewer if there are fewer candidates),
+            best first, and write one short reason for each in natural Korean (at most 25 characters),
+            e.g. "최저가보다 ¥10 비싸지만 가장 가까움", "여행자 구매 3회, 주변보다 6% 저렴".
+            Return only those 3; the other candidates keep their rule-based order.
             Rules:
             - Use only ids from the input, each at most once.
             - Base every reason only on the given fields. Never invent prices, ratings, stock, opening hours or other facts.
@@ -80,7 +81,7 @@ public class ClaudePriceRanker implements PriceRanker {
     }
 
     /** 모델이 채울 JSON 구조 */
-    record RankFields(@JsonPropertyDescription("Candidates from most to least recommended") List<PickFields> picks) {}
+    record RankFields(@JsonPropertyDescription("The 3 most recommended candidates, best first") List<PickFields> picks) {}
 
     record PickFields(
             @JsonPropertyDescription("Candidate id from the input") String id,
