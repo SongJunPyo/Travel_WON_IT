@@ -451,6 +451,7 @@ export function ReceiptEditor({
               setRate(fallbackRate(c));
               void loadRate(c);
             }}
+            testID={`currency-${c}`}
           />
         ))}
       </View>
