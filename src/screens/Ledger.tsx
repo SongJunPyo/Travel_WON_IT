@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -12,21 +12,26 @@ import {
   CATEGORIES,
   summarize,
   spendingInsight,
+  insightRequest,
   won,
   money,
   toWon,
   storeLabel,
 } from "../domain.mjs";
 import { colors, Icon, Chip, Empty } from "../components/ui";
-import type { Receipt, TravelState } from "../types";
+import { fetchInsight } from "../api";
+import type { Insight, Receipt, TravelState } from "../types";
 
 export function Ledger({
   state,
+  deviceToken,
   onAdd,
   onSettings,
   onReceipt,
 }: {
   state: TravelState;
+  // 기기 저장소를 읽은 뒤에 채워집니다. 그 전에는 소비 인사이트를 요청하지 않습니다.
+  deviceToken: string;
   onAdd: () => void;
   onSettings: () => void;
   onReceipt: (r: Receipt) => void;
@@ -34,6 +39,32 @@ export function Ledger({
   const [filter, setFilter] = useState("전체"),
     [comparison, setComparison] = useState(false);
   const summary = summarize(state.receipts, state.trip.budget);
+  // 소비 인사이트: 가계부 요약이 바뀌면 잠시 기다렸다가 서버에 분석을 요청합니다.
+  // 서버에 연결하지 못하면 기기 안의 규칙 기반 문장(spendingInsight)을 보여 줍니다.
+  const [insight, setInsight] = useState<Insight | null>(null),
+    [insightLoading, setInsightLoading] = useState(false);
+  const insightKey = JSON.stringify(insightRequest(state));
+  useEffect(() => {
+    if (!deviceToken) return;
+    let active = true;
+    setInsightLoading(true);
+    const timer = setTimeout(() => {
+      fetchInsight(JSON.parse(insightKey), deviceToken)
+        .then((result) => {
+          if (active) setInsight(result);
+        })
+        .catch(() => {
+          if (active) setInsight(null);
+        })
+        .finally(() => {
+          if (active) setInsightLoading(false);
+        });
+    }, 600);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [insightKey, deviceToken]);
   const filtered = state.receipts
     .filter((r) => filter === "전체" || r.category === filter)
     .sort(
@@ -242,16 +273,56 @@ export function Ledger({
           </View>
         )}
       </View>
-      <View style={s.insight}>
+      <View style={s.insight} testID="insight-card">
         <View style={s.insightHeading}>
           <Icon name="sparkles" color={colors.primary} size={17} />
           <Text style={s.insightTitle}>나의 소비 인사이트</Text>
-          <Text style={s.ruleBadge}>비율 기반 요약</Text>
+          <Text style={[s.ruleBadge, insight?.ai && s.aiBadge]}>
+            {insightLoading
+              ? "분석 중"
+              : insight
+                ? insight.ai
+                  ? "AI 분석"
+                  : "데이터 요약"
+                : "비율 기반 요약"}
+          </Text>
         </View>
-        <Text style={s.insightText}>{spendingInsight(summary)}</Text>
-        <Text style={s.insightNote}>
-          비교 기준은 가상 평균이에요. 실제 여행자 통계가 아니에요.
-        </Text>
+        {insight ? (
+          <>
+            <Text style={s.insightHeadline}>{insight.headline}</Text>
+            <Text style={s.insightText}>{insight.body}</Text>
+            {insight.tip ? (
+              <View style={s.insightTip}>
+                <Icon name="info" color={colors.primary} size={14} />
+                <Text style={s.insightTipText}>{insight.tip}</Text>
+              </View>
+            ) : null}
+            {insight.facts.length ? (
+              <View style={s.insightFacts} testID="insight-facts">
+                {insight.facts.map((fact) => (
+                  <Text key={fact} style={s.insightFact}>
+                    {fact}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            {insight.facts.length ? (
+              <Text style={s.insightNote}>
+                {insight.basis
+                  ? `비교 기준: ${insight.basis}의 영수증${insight.sampleData ? " (시연 가데이터 포함)" : ""}.`
+                  : "비교할 여행자 기록이 아직 적어 내 가계부만으로 분석했어요."}
+                {insight.ai ? " 문장은 AI가 위 숫자만으로 썼어요." : ""}
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Text style={s.insightText}>{spendingInsight(summary)}</Text>
+            <Text style={s.insightNote}>
+              비교 기준은 가상 평균이에요. 실제 여행자 통계가 아니에요.
+            </Text>
+          </>
+        )}
       </View>
       <View style={s.sectionHead}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
@@ -531,7 +602,51 @@ const s = StyleSheet.create({
   },
   insightTitle: { fontSize: 12, color: colors.primary, fontWeight: "700" },
   ruleBadge: { marginLeft: "auto", color: "#7995AD", fontSize: 8 },
+  aiBadge: {
+    color: "#fff",
+    backgroundColor: colors.primary,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontWeight: "700",
+  },
+  insightHeadline: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.ink,
+    marginBottom: 6,
+  },
   insightText: { fontSize: 12, lineHeight: 21, color: "#43657F" },
+  insightTip: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "flex-start",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+  },
+  insightTipText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 17,
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  insightFacts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 10,
+  },
+  insightFact: {
+    fontSize: 9,
+    color: "#5E7B92",
+    backgroundColor: "#DCEBF8",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
   insightNote: { fontSize: 9, color: "#8098AD", marginTop: 8, lineHeight: 15 },
   count: {
     backgroundColor: "#E6EFF8",

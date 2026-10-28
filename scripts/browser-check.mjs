@@ -8,14 +8,16 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const folder = await mkdtemp(join(tmpdir(), "wonhae-browser-"));
-const screenshotFolder = process.env.SCREENSHOT_DIR || fileURLToPath(
-  new URL("../docs/screenshots/", import.meta.url),
-);
+const screenshotFolder =
+  process.env.SCREENSHOT_DIR ||
+  fileURLToPath(new URL("../docs/screenshots/", import.meta.url));
 const { mkdir } = await import("node:fs/promises");
 await mkdir(screenshotFolder, { recursive: true });
 let chrome, ws, staticServer, provider, javaProcess;
 const javaLogs = [];
-let ocrRequests = 0;
+let ocrRequests = 0,
+  rankRequests = 0,
+  insightRequests = 0;
 const pending = new Map(),
   delayedPriceRequests = [],
   errors = [];
@@ -228,11 +230,71 @@ try {
   provider = http.createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
-    // Anthropic Messages API 대체 응답. 사진이 image 블록으로 왔는지만 확인합니다.
+    // Anthropic Messages API 대체 응답. 사진(image 블록)이 오면 영수증 인식, 아니면 소비 인사이트나 추천순 재정렬입니다.
     const payload = JSON.parse(raw);
-    assert.ok(
-      payload.messages[0].content.some((block) => block.type === "image"),
-    );
+    const content = payload.messages[0].content;
+    const blocks = Array.isArray(content)
+      ? content
+      : [{ type: "text", text: content }];
+    const reply = (id, text) => {
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          id,
+          type: "message",
+          role: "assistant",
+          model: payload.model,
+          content: [{ type: "text", text }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      );
+    };
+    if (!blocks.some((block) => block.type === "image")) {
+      const text = blocks.map((block) => block.text || "").join("\n");
+      // 소비 인사이트: 서버가 계산한 숫자(facts)가 왔는지 확인하고, 숫자 없는 문장으로 답합니다.
+      if (text.includes('"dailyAverage"')) {
+        assert.ok(text.includes('"usedPct"') && !text.includes("데일리마트"));
+        insightRequests++;
+        reply(
+          "msg_browser_insight",
+          JSON.stringify({
+            headline: "테스트 AI 인사이트",
+            body: "테스트 AI 분석 문장이에요.",
+            tip: null,
+          }),
+        );
+        return;
+      }
+      // 추천순: 받은 후보 순서에서 앞의 두 개만 바꾸고 이유를 붙여, AI 순서가 화면에 반영되는지 확인합니다.
+      const ids = [...text.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]);
+      assert.ok(ids.length >= 2 && text.includes("budgetLeftPct"));
+      [ids[0], ids[1]] = [ids[1], ids[0]];
+      rankRequests++;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          id: "msg_browser_rank",
+          type: "message",
+          role: "assistant",
+          model: payload.model,
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                picks: ids.map((id, i) => ({
+                  id,
+                  reason: `테스트 AI 이유 ${i + 1}`,
+                })),
+              }),
+            },
+          ],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      );
+      return;
+    }
     ocrRequests++;
     // 분석을 기다리는 로딩 화면을 확인할 수 있게 잠시 늦게 응답합니다.
     await pause(1500);
@@ -438,6 +500,11 @@ try {
   await send("Page.navigate", { url: origin });
   await check(`${saved}?.receipts.length===6`, "시연 영수증 초기 상태");
   await check(bodyHas("702,388"), "원화 총지출 표시");
+  // 소비 인사이트: 서버가 계산한 근거 숫자(칩)와, (가짜) AI가 그 숫자로 쓴 문장과 'AI 분석' 배지를 보여 줍니다.
+  await check(
+    `(()=>{const card=document.querySelector('[data-testid="insight-card"]');return !!card&&card.textContent.includes('AI 분석')&&card.textContent.includes('테스트 AI 인사이트')&&card.textContent.includes('예산 70% 사용')&&!!card.querySelector('[data-testid="insight-facts"]')})()`,
+    "소비 인사이트: 서버 계산 숫자와 AI 분석 문장 표시",
+  );
   await check(
     `document.querySelectorAll('[role=tab]').length===2`,
     "핵심 메뉴 두 개",
@@ -516,12 +583,12 @@ try {
     `document.querySelector('[data-testid="product-search"]').value===''&&${noSearchResults}`,
     "최초 진입 시 기본 검색어와 자동 검색 결과 없음",
   );
-  await click("category-식당");
+  await click("category-음식");
   await check(
     `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3`,
     "검색어 없이도 카테고리 둘러보기 가능",
   );
-  await click("category-식당");
+  await click("category-음식");
   await check(noSearchResults, "검색 전 카테고리 해제 시 결과 숨김");
   await send("Fetch.enable", {
     patterns: [{ urlPattern: "*/prices?*", requestStage: "Request" }],
@@ -533,8 +600,13 @@ try {
   );
   await screenshot("mobile-search-loading");
   for (let i = 0; i < 50 && !delayedPriceRequests.length; i++) await pause(100);
-  assert.ok(delayedPriceRequests.length, "가격 조회 요청을 기다리는 동안 로딩 표시");
-  await send("Fetch.continueRequest", { requestId: delayedPriceRequests.shift() });
+  assert.ok(
+    delayedPriceRequests.length,
+    "가격 조회 요청을 기다리는 동안 로딩 표시",
+  );
+  await send("Fetch.continueRequest", {
+    requestId: delayedPriceRequests.shift(),
+  });
   await send("Fetch.disable");
   await check(
     `${storeCards}.length===3&&document.querySelector('[data-testid="product-search"]').value==='도리토스'&&!document.querySelector('[data-testid="prices-loading"]')`,
@@ -567,7 +639,9 @@ try {
       { name: "Content-Type", value: "application/json" },
       { name: "Access-Control-Allow-Origin", value: origin },
     ],
-    body: Buffer.from(JSON.stringify({ error: "테스트 조회 실패" })).toString("base64"),
+    body: Buffer.from(JSON.stringify({ error: "테스트 조회 실패" })).toString(
+      "base64",
+    ),
   });
   await send("Fetch.disable");
   await check(
@@ -579,8 +653,14 @@ try {
   await check(noSearchResults, "공백 검색 시 결과와 로딩 숨김");
   await set("product-search", "도리토스");
   await click("search-submit");
+  // 기본 정렬은 추천순: 점수는 데일리마트 A > 산고 스토어 B > 모닝마트 C이고, (가짜) AI가 앞의 두 개를 바꿉니다.
   await check(
-    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')`,
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')&&${storeCards}[1].textContent.includes('데일리마트 A')&&${storeCards}[0].textContent.includes('AI 추천')&&${storeCards}[0].textContent.includes('테스트 AI 이유 1')`,
+    "상품 검색 기본 정렬은 AI 추천순이고 AI 추천 이유 표시",
+  );
+  await click("search-sort-가격순");
+  await check(
+    `${storeCards}.length===3&&${storeCards}[0].textContent.includes('산고 스토어 B')&&!document.querySelector('[data-testid^=reason-]')`,
     "서버 조회: 반경 안 도리토스 매장 세 곳을 가격순으로 표시",
   );
   await screenshot("mobile-compare");
@@ -613,8 +693,13 @@ try {
   const firstBrowse = `document.querySelector('[data-testid^=browse-]:not([data-testid^=browse-sort])')?.textContent||''`;
   await click("category-음식");
   await check(
-    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('규동 미나토 B')`,
-    "카테고리 선택 시 서버 거래 기록을 가격순으로 표시",
+    `document.querySelectorAll('[data-testid^=browse-]:not([data-testid^=browse-sort])').length===3&&${firstBrowse}.includes('카페 모쿠 C')&&${firstBrowse}.includes('AI 추천')`,
+    "카테고리 기본 정렬은 AI 추천순(점수 1위 라멘 소라 A와 2위 카페 모쿠 C를 AI가 바꿈)",
+  );
+  await click("browse-sort-가격순");
+  await check(
+    `${firstBrowse}.includes('규동 미나토 B')`,
+    "카테고리 가격순 정렬",
   );
   await check(
     `!!(document.querySelector('[data-testid="category-쇼핑"]').compareDocumentPosition(document.querySelector('[data-testid="category-results"]'))&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(document.querySelector('[data-testid="category-results"]').compareDocumentPosition(document.querySelector('[data-testid="category-숙박"]'))&Node.DOCUMENT_POSITION_FOLLOWING)`,
@@ -643,6 +728,12 @@ try {
   await check(
     `${browseCards}.length===7&&!document.querySelector('[data-testid="show-more"]')`,
     "더 보기를 누르면 남은 결과 표시",
+  );
+  await click("category-관광");
+  await click("category-관광");
+  await check(
+    `${browseCards}.length===5&&!!document.querySelector('[data-testid="show-more"]')`,
+    "카테고리를 다시 고르면 처음 5개부터 표시",
   );
   await click("category-관광");
   await send("Browser.grantPermissions", {
@@ -788,6 +879,8 @@ try {
   }
   assert.deepEqual(errors, [], "브라우저 런타임 오류");
   assert.equal(ocrRequests, 1, "실제 Spring AI 구조화 출력 요청 한 번");
+  assert.ok(rankRequests > 0, "추천순 AI 재정렬 요청");
+  assert.ok(insightRequests > 0, "소비 인사이트 AI 요청");
   console.log(
     JSON.stringify(
       {
