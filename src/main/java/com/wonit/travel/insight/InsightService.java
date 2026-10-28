@@ -40,13 +40,15 @@ public class InsightService {
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     // 개인의 지출을 짐작할 수 없도록 5명 이상일 때만 다른 여행자와 비교합니다.
     private static final int MIN_PEERS = 5;
+    // 일차별 누적 비교는 최대 60일차까지 계산합니다.
+    private static final int MAX_CUMULATIVE_DAYS = 60;
     private static final List<String> CATEGORIES = List.of("음식", "쇼핑", "숙박", "교통", "관광", "기타");
     private static final Duration PEER_CACHE = Duration.ofMinutes(10), AI_CACHE = Duration.ofMinutes(10),
             AI_FAILURE_CACHE = Duration.ofMinutes(1);
     private static final Pattern NUMBER = Pattern.compile("\\d[\\d,]*(?:\\.\\d+)?");
 
-    // 비교 기준 여행 하나: 기간(일), 예산(원), 가데이터 여부, 카테고리별 원화 지출
-    record PeerTrip(long deviceId, long days, long budget, boolean sample, Map<String, Double> spending) {
+    // 비교 기준 여행 하나: 기간(일), 예산(원), 가데이터 여부, 카테고리별 원화 지출, 일차별 원화 지출(0 = 출발 전)
+    record PeerTrip(long deviceId, long days, long budget, boolean sample, Map<String, Double> spending, Map<Integer, Double> byDay) {
         double total() { return spending.values().stream().mapToDouble(Double::doubleValue).sum(); }
     }
     private record Facts(Map<String, Object> json, Insight fallback) {}
@@ -69,7 +71,7 @@ public class InsightService {
         long total = spending.values().stream().mapToLong(Long::longValue).sum();
         if (total == 0)
             return new Insight("첫 영수증을 기록해 보세요", "영수증을 기록하면 예산을 쓰는 속도와 카테고리별 소비를 분석해 드려요.",
-                    null, List.of(), null, false, false);
+                    null, List.of(), null, false, false, null);
         LocalDate today = LocalDate.now(ZONE);
         List<PeerTrip> peers = peers(trip, today, self(authorization));
         Facts facts = facts(trip, spending, total, today, peers);
@@ -110,15 +112,22 @@ public class InsightService {
                 long id = ((Number) row[0]).longValue();
                 PeerTrip peer = byDevice.computeIfAbsent(id, k -> new PeerTrip(id,
                         ChronoUnit.DAYS.between((LocalDate) row[1], (LocalDate) row[2]) + 1, ((Number) row[3]).longValue(),
-                        (Boolean) row[4], new HashMap<>()));
+                        (Boolean) row[4], new HashMap<>(), new HashMap<>()));
                 // sum(최소 단위 × 환율) ÷ 10^소수자릿수 = 원화
                 double won = new BigDecimal(row[7].toString()).movePointLeft(Money.DECIMALS.getOrDefault((String) row[6], 0)).doubleValue();
                 peer.spending().merge((String) row[5], won, Double::sum);
+                peer.byDay().merge(dayIndex((LocalDate) row[1], peer.days(), (LocalDate) row[8]), won, Double::sum);
             }
             all = List.copyOf(byDevice.values());
             peerCache.put(key, all, PEER_CACHE);
         }
         return all.stream().filter(p -> !Objects.equals(p.deviceId(), self) && p.total() > 0).toList();
+    }
+
+    // 구매일 → 일차. 여행 시작 전은 0일차(출발 전), 여행 첫날이 1일차, 종료일 뒤는 마지막 일차로 넣습니다.
+    public static int dayIndex(LocalDate start, long days, LocalDate purchased) {
+        long index = ChronoUnit.DAYS.between(start, purchased) + 1;
+        return (int) Math.max(0, Math.min(days, index));
     }
 
     private static Facts facts(TripData trip, Map<String, Long> spending, long total, LocalDate today, List<PeerTrip> peers) {
@@ -152,6 +161,19 @@ public class InsightService {
             categories.add(c);
             if (peer != null && Math.abs(mine - peer) >= 3
                     && (biggestGap == null || Math.abs(mine - peer) > Math.abs((Long) biggestGap.get("diffPp")))) biggestGap = c;
+        }
+        // 일차별 평균 누적 지출: k일차 값 = k일차까지 여행한 비교 여행자들의 (0~k일차 지출 합)의 평균
+        List<Long> peerCumulative = null;
+        if (compare) {
+            peerCumulative = new ArrayList<>();
+            long maxDays = Math.min(MAX_CUMULATIVE_DAYS, peers.stream().mapToLong(PeerTrip::days).max().orElse(0));
+            for (int k = 0; k <= maxDays; k++) {
+                final int day = k;
+                List<PeerTrip> eligible = peers.stream().filter(p -> p.days() >= day).toList();
+                if (eligible.size() < MIN_PEERS) break;
+                peerCumulative.add(Math.round(eligible.stream().mapToDouble(p -> p.byDay().entrySet().stream()
+                        .filter(e -> e.getKey() <= day).mapToDouble(Map.Entry::getValue).sum()).average().orElse(0)));
+            }
         }
         categories.sort(Comparator.comparingLong((Map<String, Object> c) -> (Long) c.get("minePct")).reversed());
         Map<String, Object> top = categories.get(0);
@@ -213,7 +235,8 @@ public class InsightService {
         if (daily != null) chips.add("하루 평균 " + won(daily) + (peerDaily != null ? " · 여행자 중앙값 " + won(peerDaily) : ""));
         if (projected != null && remaining > 0) chips.add("이 속도면 총 " + won(projected));
         boolean sample = compare && peers.stream().anyMatch(PeerTrip::sample);
-        return new Facts(facts, new Insight(headline, String.join(" ", sentences), tip, List.copyOf(chips), group, sample, false));
+        return new Facts(facts, new Insight(headline, String.join(" ", sentences), tip, List.copyOf(chips), group, sample, false,
+                peerCumulative == null ? null : List.copyOf(peerCumulative)));
     }
 
     // AI 문장은 검사한 뒤에만 씁니다. 같은 숫자(facts)면 10분 동안 다시 쓰고, 실패는 1분 동안 기억해 반복 호출을 막습니다.
@@ -231,7 +254,8 @@ public class InsightService {
             }
         }
         Insight fallback = facts.fallback();
-        return advice.map(a -> new Insight(a.headline(), a.body(), a.tip(), fallback.facts(), fallback.basis(), fallback.sampleData(), true))
+        return advice.map(a -> new Insight(a.headline(), a.body(), a.tip(), fallback.facts(), fallback.basis(), fallback.sampleData(), true,
+                fallback.peerCumulative()))
                 .orElse(fallback);
     }
 

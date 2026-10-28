@@ -389,6 +389,67 @@ test("정한 여행은 영수증 구매일이 들어가도록 기간만 넓히�
   assert.equal(filled.start, "2026-10-24");
   assert.equal(filled.end, "2026-10-29");
 });
+test("다른 여행자 비교는 일차별 누적 지출(0일차 = 출발 전)로 막대 값을 만든다", async () => {
+  const { myCumulative, cumulativeBars, cumulativeDayLabel, dayIndex } =
+    await import("../src/domain.mjs");
+  const receipt = (id, totalMinor, date) => ({
+    id,
+    store: id,
+    date,
+    category: "음식",
+    currency: "KRW",
+    rate: 1,
+    totalMinor,
+    items: [{ name: id, quantity: 1, unitMinor: totalMinor }],
+    demo: false,
+  });
+  const state = {
+    trip: {
+      city: "도쿄",
+      country: "일본",
+      start: "2026-10-24",
+      end: "2026-10-30",
+      budget: 1000000,
+      currency: "KRW",
+      rate: 1,
+    },
+    receipts: [
+      receipt("호텔 예약", 140000, "2026-10-01"),
+      receipt("라멘", 20000, "2026-10-24"),
+      receipt("쇼핑", 31000, "2026-10-25"),
+    ],
+  };
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-01"), 0);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-10-24"), 1);
+  assert.equal(dayIndex("2026-10-24", 7, "2026-11-05"), 7);
+  // 오늘 10/25 = 2일차: [0일차 140,000, 1일차 160,000, 2일차 191,000]
+  assert.deepEqual(myCumulative(state, "2026-10-25"), [140000, 160000, 191000]);
+  // 여행 전이면 0일차만
+  assert.deepEqual(
+    myCumulative({ ...state, receipts: [state.receipts[0]] }, "2026-10-10"),
+    [140000],
+  );
+  assert.equal(cumulativeDayLabel(state, 0, "2026-10-25"), "0일차 · 출발 전");
+  assert.equal(
+    cumulativeDayLabel(state, 2, "2026-10-25"),
+    "2일차 · 10.25 · 오늘",
+  );
+  const mine = [140000, 160000, 191000];
+  assert.deepEqual(cumulativeBars(mine, null, 2), {
+    me: 191000,
+    average: null,
+    diff: 0,
+    percent: 0,
+    tone: "none",
+  });
+  const peers = [120000, 150000, 165000];
+  assert.equal(cumulativeBars(mine, peers, 2).diff, 26000);
+  assert.equal(cumulativeBars(mine, peers, 2).percent, 16);
+  assert.equal(cumulativeBars(mine, peers, 2).tone, "more");
+  assert.equal(cumulativeBars(mine, [120000, 158000], 1).tone, "same");
+  // 그 일차까지 여행한 비교 여행자가 부족하면 평균 없음
+  assert.equal(cumulativeBars(mine, [120000, 150000], 2).average, null);
+});
 test("가계부 CSV는 품목마다 한 줄, BOM과 따옴표 처리, 원화 환산을 넣는다", async () => {
   const { ledgerCsv, ledgerCsvName } = await import("../src/domain.mjs");
   const csv = ledgerCsv({

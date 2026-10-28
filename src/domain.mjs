@@ -402,6 +402,69 @@ export function withoutDefaults(state) {
     ),
   };
 }
+// 가계부 '다른 여행자와 비교': 일차별 누적 지출 (0일차 = 출발 전, 1일차 = 여행 첫날).
+const dayNumber = (date) => Math.round(Date.parse(date) / 86400000);
+// 구매일 → 일차. 여행 시작 전은 0일차, 종료일 뒤는 마지막 일차로 넣습니다(서버와 같은 규칙).
+export function dayIndex(start, days, date) {
+  return Math.max(0, Math.min(days, dayNumber(date) - dayNumber(start) + 1));
+}
+// 내 일차별 누적 지출(원). 0일차부터 오늘(여행이 끝났으면 마지막 날, 시작 전이면 0일차)까지 돌려줍니다.
+// 여행을 아직 정하지 않았으면 가장 이른 영수증 날짜를 1일차로 봅니다.
+export function myCumulative(state, today) {
+  const receipts = state.receipts.filter((r) => validDate(r.date));
+  const ready = tripReady(state.trip);
+  if (!ready && !receipts.length) return [0];
+  const start = ready
+    ? state.trip.start
+    : receipts.map((r) => r.date).sort()[0];
+  const end = ready
+    ? state.trip.end
+    : receipts
+        .map((r) => r.date)
+        .sort()
+        .at(-1);
+  const days = dayNumber(end) - dayNumber(start) + 1;
+  const todayIndex = dayIndex(start, days, today);
+  const last = Math.max(
+    todayIndex,
+    ...receipts.map((r) => dayIndex(start, days, r.date)),
+  );
+  const byDay = Array(last + 1).fill(0);
+  for (const r of receipts)
+    byDay[dayIndex(start, days, r.date)] += toWon(
+      r.totalMinor,
+      r.currency,
+      r.rate,
+    );
+  let sum = 0;
+  return byDay.map((v) => (sum += v));
+}
+// 드롭다운 항목: "0일차 · 출발 전", "1일차 · 10.24", 오늘이면 "· 오늘"
+export function cumulativeDayLabel(state, day, today) {
+  if (day === 0) return "0일차 · 출발 전";
+  const start = tripReady(state.trip)
+    ? state.trip.start
+    : state.receipts.map((r) => r.date).sort()[0];
+  if (!start) return `${day}일차`;
+  const date = new Date((dayNumber(start) + day - 1) * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  return `${day}일차 · ${date.slice(5).replace("-", ".")}${date === today ? " · 오늘" : ""}`;
+}
+// 고른 일차의 막대 두 개(나·다른 여행자)와 차이 문구용 값.
+// 다른 여행자 값이 없으면(비교 여행자 5명 미만, 또는 그 일차까지 여행한 사람이 5명 미만) average는 null입니다.
+// 차이가 평균의 3% 안쪽이면 '비슷함'입니다.
+export function cumulativeBars(mine, peers, day) {
+  const me = mine[day] ?? mine.at(-1) ?? 0;
+  const average = peers && day < peers.length ? peers[day] : null;
+  if (average == null)
+    return { me, average, diff: 0, percent: 0, tone: "none" };
+  const diff = me - average;
+  const percent = average ? Math.round((Math.abs(diff) / average) * 100) : 0;
+  const tone =
+    Math.abs(diff) <= average * 0.03 ? "same" : diff > 0 ? "more" : "less";
+  return { me, average, diff, percent, tone };
+}
 // 가계부 CSV: 영수증 품목 한 줄씩. 엑셀에서 한글이 깨지지 않도록 BOM을 붙이고, 쉼표·따옴표·줄바꿈은 따옴표로 감쌉니다.
 const csvCell = (value) => {
   const text = value == null ? "" : String(value);

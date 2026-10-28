@@ -539,7 +539,19 @@ try {
   );
   await screenshot("mobile-ledger");
   await click("toggle-comparison");
-  await check(bodyHas("시연 평균 ·"), "평균 비교 표 시연 표시");
+  await check(
+    `!!document.querySelector('[data-testid="comparison-chart"]')&&!!document.querySelector('[data-testid="bar-me"]')&&` +
+      bodyHas("누적 지출") +
+      "&&" +
+      bodyHas("5명 이상 모이면"),
+    "다른 여행자 비교: 누적 지출 막대 (여행자 5명 미만이면 평균 대신 안내)",
+  );
+  await click("compare-day");
+  await click("compare-day-0");
+  await check(
+    `document.querySelector('[data-testid="compare-day"]').textContent.includes('0일차 · 출발 전')&&!document.querySelector('[data-testid="compare-day-menu"]')`,
+    "비교 일차 드롭다운 선택",
+  );
   // 여행을 직접 입력하지 않아도 첫 실제 영수증의 통화·구매일로 여행이 채워집니다.
   await click("add-receipt");
   await click("currency-JPY");

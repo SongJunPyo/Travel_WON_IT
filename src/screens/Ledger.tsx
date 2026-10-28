@@ -12,6 +12,9 @@ import {
 import Svg, { Circle } from "react-native-svg";
 import {
   CATEGORIES,
+  cumulativeBars,
+  cumulativeDayLabel,
+  myCumulative,
   ledgerCsv,
   ledgerCsvName,
   summarize,
@@ -76,6 +79,19 @@ export function Ledger({
       clearTimeout(timer);
     };
   }, [insightKey, deviceToken, ready]);
+  // 다른 여행자와 비교: 드롭다운에서 고른 일차(0 = 출발 전)까지의 총 누적 지출을 막대 두 개(나·다른 여행자)로 보여 줍니다.
+  // 내 누계는 기기의 영수증으로, 다른 여행자 누계는 서버(insight.peerCumulative)로 계산합니다.
+  const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Seoul",
+  }).format(new Date());
+  const mine: number[] = myCumulative(state, today);
+  const peerCumulative = insight?.peerCumulative ?? null;
+  const lastDay = mine.length - 1;
+  const [pickedDay, setPickedDay] = useState<number | null>(null),
+    [dayMenu, setDayMenu] = useState(false);
+  const day = pickedDay == null || pickedDay > lastDay ? lastDay : pickedDay;
+  const bars = cumulativeBars(mine, peerCumulative, day);
+  const barMax = Math.max(bars.me, bars.average ?? 0, 1);
   const [exportMessage, setExportMessage] = useState("");
   // 가계부 CSV 내보내기: 웹은 파일로 내려받고, 앱은 공유 시트로 보냅니다(새 라이브러리 없이 RN Share 사용).
   async function exportCsv() {
@@ -295,32 +311,119 @@ export function Ledger({
           />
         </Pressable>
         {comparison && (
-          <View testID="comparison-table" style={s.comparison}>
-            <Text style={s.comparisonNotice}>
-              시연 평균 · 같은 도시·여행 기간을 가정한 가상 데이터
-            </Text>
-            <View style={s.tableRow}>
-              <Text style={[s.tableText, { flex: 1.2 }]}>카테고리</Text>
-              <Text style={s.tableText}>나</Text>
-              <Text style={s.tableText}>시연 평균</Text>
-              <Text style={s.tableText}>차이</Text>
-            </View>
-            {summary.categories.map((c) => (
-              <View key={c.name} style={s.tableRow}>
-                <Text style={[s.tableValue, { flex: 1.2 }]}>{c.name}</Text>
-                <Text style={s.tableValue}>{Math.round(c.ratio)}%</Text>
-                <Text style={s.tableValue}>{c.average}%</Text>
-                <Text
-                  style={[
-                    s.tableValue,
-                    { color: c.delta > 0 ? colors.primary : colors.muted },
-                  ]}
-                >
-                  {c.delta > 0 ? "+" : ""}
-                  {Math.round(c.delta)}%p
+          <View testID="comparison-chart" style={s.comparison}>
+            <View style={s.compareHead}>
+              <Text style={s.compareTitle}>누적 지출</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="비교할 일차 선택"
+                accessibilityState={{ expanded: dayMenu }}
+                onPress={() => setDayMenu(!dayMenu)}
+                testID="compare-day"
+                style={s.dayPicker}
+              >
+                <Text style={s.dayPickerText}>
+                  {cumulativeDayLabel(state, day, today)}
                 </Text>
+                <View
+                  style={{
+                    transform: [{ rotate: dayMenu ? "-90deg" : "90deg" }],
+                  }}
+                >
+                  <Icon name="chevron" size={13} color={colors.muted} />
+                </View>
+              </Pressable>
+            </View>
+            {dayMenu && (
+              <View style={s.dayMenu} testID="compare-day-menu">
+                {mine.map((_, d) => (
+                  <Pressable
+                    key={d}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setPickedDay(d);
+                      setDayMenu(false);
+                    }}
+                    testID={`compare-day-${d}`}
+                    style={[s.dayOption, d === day && s.dayOptionActive]}
+                  >
+                    <Text
+                      style={[
+                        s.dayOptionText,
+                        d === day && { color: colors.primary },
+                      ]}
+                    >
+                      {cumulativeDayLabel(state, d, today)}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
-            ))}
+            )}
+            <Text style={s.comparisonNotice} testID="comparison-basis">
+              {peerCumulative
+                ? `${insight?.basis ?? "다른 여행자"}과 같은 일차끼리 비교${insight?.sampleData ? " · 시연 가데이터 포함" : ""}`
+                : "다른 여행자와 같은 일차끼리 비교해요"}
+            </Text>
+            <View style={s.barArea}>
+              <View style={s.barColumn}>
+                <Text style={[s.barValue, { color: colors.primary }]}>
+                  {won(bars.me)}
+                </Text>
+                <View
+                  testID="bar-me"
+                  style={[
+                    s.bar,
+                    {
+                      height: Math.max(6, Math.round((bars.me / barMax) * 120)),
+                      backgroundColor: colors.primary,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={s.barColumn}>
+                <Text style={[s.barValue, { color: colors.muted }]}>
+                  {bars.average == null ? "기록 부족" : won(bars.average)}
+                </Text>
+                <View
+                  testID="bar-average"
+                  style={[
+                    s.bar,
+                    bars.average == null
+                      ? s.barEmpty
+                      : {
+                          height: Math.max(
+                            6,
+                            Math.round((bars.average / barMax) * 120),
+                          ),
+                          backgroundColor: "#B9CCDD",
+                        },
+                  ]}
+                />
+              </View>
+            </View>
+            <View style={s.barLabels}>
+              <Text style={s.barLabel}>나</Text>
+              <Text style={s.barLabel}>다른 여행자</Text>
+            </View>
+            <Text
+              testID="comparison-diff"
+              style={[
+                s.compareDiff,
+                bars.tone === "more" && s.diffMore,
+                bars.tone === "less" && s.diffLess,
+              ]}
+            >
+              {bars.tone === "none"
+                ? peerCumulative
+                  ? `${day}일차까지 여행한 다른 여행자가 5명 미만이라 비교할 수 없어요.`
+                  : "같은 도시를 다녀온 여행자 기록이 5명 이상 모이면 비교해 드려요."
+                : bars.tone === "same"
+                  ? `평균과 ${day}일차까지 비슷하게 썼어요.`
+                  : `평균보다 ${day}일차에 ${won(Math.abs(bars.diff))}${bars.average ? `(${bars.percent}%)` : ""} ${bars.tone === "more" ? "더" : "덜"} 썼어요.`}
+            </Text>
+            <Text style={s.compareShare}>
+              0일차는 출발 전에 결제한 금액(숙소 예약 등)이에요.
+            </Text>
           </View>
         )}
       </View>
@@ -656,25 +759,79 @@ const s = StyleSheet.create({
     color: colors.muted,
     marginBottom: 10,
   },
-  tableRow: {
+  compareHead: {
     flexDirection: "row",
-    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 6,
+  },
+  compareTitle: { fontSize: 13, color: colors.ink, fontWeight: "600" },
+  dayPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#DDE6EE",
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "#fff",
+  },
+  dayPickerText: { fontSize: 11, color: colors.ink },
+  dayMenu: {
+    alignSelf: "flex-end",
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    marginBottom: 8,
+    minWidth: 150,
+    overflow: "hidden",
+  },
+  dayOption: { paddingVertical: 8, paddingHorizontal: 12 },
+  dayOptionActive: { backgroundColor: colors.soft },
+  dayOptionText: { fontSize: 11, color: colors.ink },
+  barArea: {
+    height: 160,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 42,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F4F8",
+    borderBottomColor: colors.line,
   },
-  tableText: {
-    flex: 1,
-    fontSize: 10,
-    color: colors.muted,
-    textAlign: "center",
+  barColumn: { width: 70, alignItems: "center", gap: 6 },
+  barValue: { fontSize: 11, fontWeight: "600" },
+  bar: { width: 46, borderTopLeftRadius: 8, borderTopRightRadius: 8 },
+  barEmpty: {
+    height: 24,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#B9CCDD",
+    borderBottomWidth: 0,
   },
-  tableValue: {
-    flex: 1,
+  barLabels: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 42,
+    marginTop: 6,
+  },
+  barLabel: { width: 70, textAlign: "center", fontSize: 11, color: colors.ink },
+  compareDiff: {
+    marginTop: 12,
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
     fontSize: 11,
-    color: colors.ink,
-    textAlign: "center",
-    fontWeight: "500",
+    lineHeight: 17,
+    backgroundColor: colors.bg,
+    color: "#43657F",
+    overflow: "hidden",
   },
+  diffMore: { backgroundColor: colors.soft, color: colors.primary },
+  diffLess: { backgroundColor: "#EAF7F5", color: "#1E7B76" },
+  compareShare: { fontSize: 10, color: "#8098AD", marginTop: 8 },
   insight: {
     padding: 17,
     borderRadius: 16,

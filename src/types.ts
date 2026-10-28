@@ -71,6 +71,8 @@ export type Insight = {
   tip: string | null;
   facts: string[];
   basis: string | null;
+  // 다른 여행자 일차별 평균 누적 지출(원). 인덱스 = 일차(0 = 출발 전). 비교 여행자 5명 미만이면 null
+  peerCumulative?: number[] | null;
   sampleData: boolean;
   ai: boolean;
 };
