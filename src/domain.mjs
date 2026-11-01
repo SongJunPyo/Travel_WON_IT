@@ -75,6 +75,16 @@ export function validDate(value) {
     new Date(value).toISOString().slice(0, 10) === value
   );
 }
+// 날짜 입력칸: 숫자만 8자리까지 남기고 YYYY-MM-DD 자리에 하이픈을 넣습니다.
+export function dateInput(text) {
+  const d = String(text).replace(/\D/g, "").slice(0, 8);
+  return [d.slice(0, 4), d.slice(4, 6), d.slice(6)].filter(Boolean).join("-");
+}
+// 금액 입력칸: 숫자만 남기고 앞의 0을 지운 뒤 세 자리마다 쉼표를 넣습니다.
+export function budgetInput(text) {
+  const d = String(text).replace(/\D/g, "").replace(/^0+/, "");
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
 // 화면에는 한국어 매장명을 먼저 보여 주고, 원문이 다르면 함께 보여 줍니다.
 export const storeLabel = (r) => r.storeKo?.trim() || r.store;
 export const storeOriginal = (r) =>

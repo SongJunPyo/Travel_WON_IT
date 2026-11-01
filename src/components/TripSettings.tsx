@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Sheet, Field, Button, colors } from "./ui";
-import { validDate, parseMoney } from "../domain.mjs";
+import { validDate, parseMoney, dateInput, budgetInput } from "../domain.mjs";
 import type { TravelState } from "../types";
 
 export function TripSettings({
@@ -16,7 +16,7 @@ export function TripSettings({
   onClear: () => void;
 }) {
   const [draft, setDraft] = useState(trip),
-    [budget, setBudget] = useState(trip.budget ? String(trip.budget) : ""),
+    [budget, setBudget] = useState(budgetInput(trip.budget ?? "")),
     [error, setError] = useState(""),
     [confirm, setConfirm] = useState(false);
   function save() {
@@ -33,7 +33,7 @@ export function TripSettings({
         ...draft,
         city: draft.city.trim(),
         country: draft.country.trim(),
-        budget: parseMoney(budget, "KRW"),
+        budget: parseMoney(budget.replaceAll(",", ""), "KRW"),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "입력값을 확인해 주세요.");
@@ -64,14 +64,20 @@ export function TripSettings({
         <Field
           label="여행 시작일"
           value={draft.start}
-          onChangeText={(start) => setDraft({ ...draft, start })}
+          onChangeText={(start) =>
+            setDraft({ ...draft, start: dateInput(start) })
+          }
+          keyboardType="number-pad"
           placeholder="YYYY-MM-DD"
           testID="trip-start"
         />
         <Field
           label="여행 종료일"
           value={draft.end}
-          onChangeText={(end) => setDraft({ ...draft, end })}
+          onChangeText={(end) =>
+            setDraft({ ...draft, end: dateInput(end) })
+          }
+          keyboardType="number-pad"
           placeholder="YYYY-MM-DD"
           testID="trip-end"
         />
@@ -79,9 +85,9 @@ export function TripSettings({
       <Field
         label="전체 여행 예산 (원)"
         value={budget}
-        onChangeText={setBudget}
+        onChangeText={(text) => setBudget(budgetInput(text))}
         keyboardType="number-pad"
-        placeholder="예: 1000000"
+        placeholder="예: 1,000,000"
         testID="trip-budget"
       />
       <Text style={s.note}>
