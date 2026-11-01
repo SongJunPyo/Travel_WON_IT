@@ -206,6 +206,3 @@ travel_WONIT/
 - [SPEC.md](SPEC.md): 요구사항, 기술 버전과 근거, 테스트·작업 목록
 - [docs/AI_utils/README.md](docs/AI_utils/README.md): 영수증 OCR·AI 추천순·소비 인사이트의 AI 활용 방식
 - [docs/db-design.md](docs/db-design.md): `travel_won` DB 설계와 화면별 쿼리
-- [docs/results.md](docs/results.md): 요구사항·구조 검토 결과와 결정 기록
-- [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md): 개발·검증 기록
-- [docs/sub_SPEC.md](docs/sub_SPEC.md): 개편 명세 원본
