@@ -591,9 +591,13 @@ try {
   await click("trip-settings");
   await set("trip-city", "도쿄");
   await set("trip-country", "일본");
-  await set("trip-start", "2026-10-24");
+  await set("trip-start", "20261024");
   await set("trip-end", "2026-10-30");
   await set("trip-budget", "600000");
+  await check(
+    `document.querySelector('[data-testid="trip-start"]').value==="2026-10-24"&&document.querySelector('[data-testid="trip-budget"]').value==="600,000"`,
+    "여행 날짜 하이픈·예산 쉼표 자동 입력",
+  );
   await click("save-settings");
   await check(bodyHas("도쿄 여행"), "여행 설정 후 도시 표시");
   await check(bodyHas("앞으로 600,000원 더 사용할 수 있어요"), "예산 변경 후 남은 예산 표시");

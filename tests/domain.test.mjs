@@ -20,11 +20,36 @@ import {
   storeOriginal,
   fingerprint,
   validDate,
+  dateInput,
+  budgetInput,
   spendingInsight,
   recommendProfile,
   insightRequest,
 } from "../src/domain.mjs";
 
+test("여행 날짜 입력은 숫자만 남겨 YYYY-MM-DD 형식으로 하이픈을 넣는다", () => {
+  assert.equal(dateInput("2026"), "2026");
+  assert.equal(dateInput("20261"), "2026-1");
+  assert.equal(dateInput("202610"), "2026-10");
+  assert.equal(dateInput("20261024"), "2026-10-24");
+  // 이미 하이픈이 있거나 다른 구분자를 써도, 8자리를 넘겨도 같은 형식이 됩니다.
+  assert.equal(dateInput("2026-10-24"), "2026-10-24");
+  assert.equal(dateInput("2026.10.24"), "2026-10-24");
+  assert.equal(dateInput("202610245"), "2026-10-24");
+  // 지우다가 남은 끝 하이픈은 붙이지 않아 계속 지울 수 있습니다.
+  assert.equal(dateInput("2026-10-"), "2026-10");
+  assert.equal(dateInput(""), "");
+});
+test("여행 예산 입력은 숫자만 남겨 세 자리마다 쉼표를 넣는다", () => {
+  assert.equal(budgetInput("1000000"), "1,000,000");
+  assert.equal(budgetInput("1,000,0000"), "10,000,000");
+  assert.equal(budgetInput("600"), "600");
+  assert.equal(budgetInput("00120000"), "120,000");
+  assert.equal(budgetInput("12만원"), "12");
+  assert.equal(budgetInput(""), "");
+  // 쉼표를 빼면 저장에 쓰는 parseMoney가 그대로 받습니다.
+  assert.equal(parseMoney(budgetInput("1500000").replaceAll(",", ""), "KRW"), 1500000);
+});
 const receipt = (overrides = {}) => ({
   ...createDemo().receipts[3],
   id: "real-1",
