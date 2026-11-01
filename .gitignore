@@ -16,9 +16,6 @@ coverage/
 .DS_Store
 
 # 서비스 실행에 필요 없는 내부 자료 (로컬에만 보관)
-AGENTS.md
-.agents/
-skills-lock.json
 docs/IMPLEMENTATION.md
 docs/results.md
 docs/sub_SPEC.md
