@@ -589,8 +589,10 @@ try {
   await click("delete-receipt");
   await check(`${saved}.receipts.length===0`, "자동 설정 확인용 영수증 삭제");
   await click("trip-settings");
+  await click("trip-country");
+  await click("trip-country-JPY");
+  await check(bodyHas("통화: 엔(JPY)"), "여행 국가 선택 시 통화 자동 설정");
   await set("trip-city", "도쿄");
-  await set("trip-country", "일본");
   await set("trip-start", "20261024");
   await set("trip-end", "2026-10-30");
   await set("trip-budget", "600000");
