@@ -6,6 +6,9 @@ import {
   EMPTY_TRIP,
   tripReady,
   tripWithReceipt,
+  TRIP_COUNTRIES,
+  tripCountry,
+  tripRateFor,
   withoutDefaults,
   parseMoney,
   rateUnits,
@@ -49,6 +52,39 @@ test("여행 예산 입력은 숫자만 남겨 세 자리마다 쉼표를 넣는
   assert.equal(budgetInput(""), "");
   // 쉼표를 빼면 저장에 쓰는 parseMoney가 그대로 받습니다.
   assert.equal(parseMoney(budgetInput("1500000").replaceAll(",", ""), "KRW"), 1500000);
+});
+test("여행 국가를 고르면 그 나라 통화로 여행 통화를 맞춘다", () => {
+  assert.deepEqual(
+    TRIP_COUNTRIES.map((c) => [c.name, c.currency]),
+    [
+      ["대한민국", "KRW"],
+      ["일본", "JPY"],
+      ["프랑스", "EUR"],
+    ],
+  );
+  assert.equal(tripCountry({ ...EMPTY_TRIP }, "일본").currency, "JPY");
+  assert.equal(tripCountry({ ...EMPTY_TRIP }, "프랑스").currency, "EUR");
+  const korea = tripCountry({ ...EMPTY_TRIP, currency: "JPY", rate: 9.24 }, "대한민국");
+  assert.deepEqual([korea.country, korea.currency, korea.rate], ["대한민국", "KRW", 1]);
+  // 국가만 정하고 통화는 원화로 남아 있던 여행도 다시 고르면 엔화가 됩니다.
+  const stale = { ...EMPTY_TRIP, city: "도쿄", country: "일본", currency: "KRW", rate: 1 };
+  assert.equal(tripCountry(stale, "일본").currency, "JPY");
+  // 통화가 그대로면 여행 환율도 그대로 둡니다.
+  const tokyo = { ...stale, currency: "JPY", rate: 9.24 };
+  assert.equal(tripCountry(tokyo, "일본").rate, 9.24);
+  // '선택'으로 되돌리면 국가만 비우고 통화는 그대로 둡니다.
+  assert.deepEqual(
+    [tripCountry(tokyo, "").country, tripCountry(tokyo, "").currency],
+    ["", "JPY"],
+  );
+});
+test("오늘 환율을 못 불러올 때 쓰는 기본 환율은 아는 값일 때만 채운다", () => {
+  const tokyo = { ...EMPTY_TRIP, currency: "JPY", rate: 9.24 };
+  assert.equal(tripRateFor(tokyo, "JPY"), "9.24");
+  assert.equal(tripRateFor(tokyo, "KRW"), "1");
+  assert.equal(tripRateFor(tokyo, "EUR"), "");
+  // 국가를 바꿔 통화만 엔화가 되고 환율은 아직 모르면(원화 기준 1) 비워 둡니다.
+  assert.equal(tripRateFor(tripCountry({ ...EMPTY_TRIP }, "일본"), "JPY"), "");
 });
 const receipt = (overrides = {}) => ({
   ...createDemo().receipts[3],

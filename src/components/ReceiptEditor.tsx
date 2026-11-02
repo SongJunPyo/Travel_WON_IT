@@ -21,6 +21,7 @@ import {
   toWon,
   won,
   demoStoreLocation,
+  tripRateFor,
 } from "../domain.mjs";
 import { fetchExchangeRate, recognizeReceipt } from "../api";
 import { Sheet, Button, Field, Label, Chip, Icon, colors } from "./ui";
@@ -63,7 +64,9 @@ export function ReceiptEditor({
     [date, setDate] = useState(initial?.date || today()),
     [category, setCategory] = useState(initial?.category || "음식");
   const [currency, setCurrency] = useState(initial?.currency || trip.currency),
-    [rate, setRate] = useState(String(initial?.rate || trip.rate)),
+    [rate, setRate] = useState(
+      initial ? String(initial.rate) : tripRateFor(trip, trip.currency),
+    ),
     [rateNote, setRateNote] = useState<{ text: string; failed: boolean } | null>(
       null,
     ),
@@ -71,8 +74,7 @@ export function ReceiptEditor({
   // 환율 요청 번호. 그사이 통화를 바꾸거나 직접 입력하면 번호가 바뀌어 늦게 온 응답을 버립니다.
   const rateRequest = useRef(0);
   // 오늘 환율을 못 불러올 때 쓰는 값: 여행 통화는 여행 설정의 환율, 원화는 1
-  const fallbackRate = (c: string) =>
-    c === trip.currency ? String(trip.rate) : c === "KRW" ? "1" : "";
+  const fallbackRate = (c: string) => tripRateFor(trip, c);
   const [items, setItems] = useState<ItemDraft[]>(
     initial?.items.map((i) => ({
       name: i.name,

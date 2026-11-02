@@ -340,8 +340,27 @@ export const CURRENCY_REGIONS = {
   THB: "태국",
   USD: "미국",
   EUR: "유럽",
-  KRW: "한국",
+  KRW: "대한민국",
 };
+// 여행 설정에서 고를 수 있는 국가와 그 나라 통화
+export const TRIP_COUNTRIES = [
+  { name: "대한민국", currency: "KRW", unit: "원" },
+  { name: "일본", currency: "JPY", unit: "엔" },
+  { name: "프랑스", currency: "EUR", unit: "유로" },
+];
+// 국가를 고르면 여행 통화를 그 나라 통화로 맞춥니다. 통화가 바뀌면 환율은 아직 모르므로 1로 둡니다.
+export function tripCountry(trip, country) {
+  const currency = TRIP_COUNTRIES.find((c) => c.name === country)?.currency;
+  if (!currency) return { ...trip, country: "" };
+  const rate = currency === trip.currency ? trip.rate : 1;
+  return { ...trip, country, currency, rate };
+}
+// 오늘 환율을 못 불러올 때 쓰는 기본 환율: 원화는 1, 여행 통화는 여행 환율.
+// 외화인데 여행 환율이 1이면 국가만 바꾸고 아직 모르는 값이므로 비워 둡니다(1원과 같은 지원 외화는 없음).
+export function tripRateFor(trip, currency) {
+  if (currency === "KRW") return "1";
+  return currency === trip.currency && trip.rate !== 1 ? String(trip.rate) : "";
+}
 // 사용자가 여행을 직접 입력하지 않아도 되도록 영수증으로 여행을 채웁니다.
 // 여행을 정하지 않았으면 비어 있는 도시·국가와 기간·통화·환율을 첫 영수증으로 채우고,
 // 정했으면 영수증 구매일이 들어가도록 기간만 넓힙니다(줄이지 않음). 시연 영수증은 쓰지 않습니다.
